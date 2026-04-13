@@ -3,19 +3,21 @@ import { db } from "@/lib/db";
 import {
   calculateMiningReward,
   MAX_SUPPLY,
+  makeReferralCode,
+  getMiningLevelFromXp,
 } from "@/lib/karpy";
 
-const COOLDOWN = 24 * 60 * 60 * 1000;
+const COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
-    const { wallet } = await req.json();
+    const body = await req.json();
+    const walletRaw = typeof body?.wallet === "string" ? body.wallet : "";
+    const cleanWallet = walletRaw.toLowerCase().trim();
 
-    if (!wallet) {
+    if (!cleanWallet) {
       return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
     }
-
-    const cleanWallet = wallet.toLowerCase().trim();
 
     let user = await db.user.findUnique({
       where: { wallet: cleanWallet },
@@ -25,6 +27,7 @@ export async function POST(req: NextRequest) {
       user = await db.user.create({
         data: {
           wallet: cleanWallet,
+          referralCode: makeReferralCode(cleanWallet),
           balance: 0,
           streak: 0,
           referrals: 0,
@@ -35,19 +38,22 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // cooldown check
     if (user.lastClaimAt) {
-      const now = Date.now();
-      const last = new Date(user.lastClaimAt).getTime();
+      const lastClaimTs = new Date(user.lastClaimAt).getTime();
+      const nowTs = Date.now();
+      const remainingMs = COOLDOWN_MS - (nowTs - lastClaimTs);
 
-      if (now - last < COOLDOWN) {
-        return NextResponse.json({
-          error: "Cooldown active",
-        });
+      if (remainingMs > 0) {
+        return NextResponse.json(
+          {
+            error: "Cooldown active",
+            cooldownMs: remainingMs,
+          },
+          { status: 429 }
+        );
       }
     }
 
-    // token stats
     let stats = await db.tokenStats.findFirst();
 
     if (!stats) {
@@ -60,52 +66,91 @@ export async function POST(req: NextRequest) {
     }
 
     if (stats.circulatingSupply >= stats.maxSupply) {
-      return NextResponse.json({
-        error: "All supply mined",
-      });
+      return NextResponse.json(
+        { error: "Max supply reached" },
+        { status: 400 }
+      );
     }
 
-    const rewardRaw = calculateMiningReward({
+    const rawReward = calculateMiningReward({
       level: user.miningLevel,
-      streak: user.streak,
+      streak: user.streak + 1,
       referrals: user.referrals,
       circulatingSupply: stats.circulatingSupply,
+      wallet: cleanWallet,
     });
 
-    const remaining = stats.maxSupply - stats.circulatingSupply;
+    const remainingSupply = Math.max(
+      0,
+      stats.maxSupply - stats.circulatingSupply
+    );
 
-    const reward = Math.max(0, Math.min(rewardRaw, remaining));
+    const finalReward = Math.min(rawReward, remainingSupply);
 
-    const newStreak = user.streak + 1;
-    const newXp = user.miningXp + reward;
-    const newLevel = Math.floor(newXp / 100) + 1;
+    if (finalReward <= 0) {
+      return NextResponse.json(
+        { error: "No reward available" },
+        { status: 400 }
+      );
+    }
+
+    const newXp = user.miningXp + finalReward;
+    const newLevel = getMiningLevelFromXp(newXp);
 
     const updatedUser = await db.user.update({
       where: { wallet: cleanWallet },
       data: {
-        balance: { increment: reward },
-        totalMined: { increment: reward },
+        balance: { increment: finalReward },
+        totalMined: { increment: finalReward },
         miningXp: newXp,
         miningLevel: newLevel,
-        streak: newStreak,
+        streak: user.streak + 1,
         lastClaimAt: new Date(),
+        claims: {
+          create: {
+            amount: finalReward,
+          },
+        },
+      },
+      include: {
+        claims: {
+          orderBy: { createdAt: "desc" },
+          take: 1,
+        },
       },
     });
 
-    await db.tokenStats.update({
+    const updatedStats = await db.tokenStats.update({
       where: { id: stats.id },
       data: {
-        circulatingSupply: { increment: reward },
+        circulatingSupply: { increment: finalReward },
       },
     });
 
     return NextResponse.json({
-      reward,
+      ok: true,
+      reward: finalReward,
+      wallet: updatedUser.wallet,
       balance: updatedUser.balance,
       streak: updatedUser.streak,
-      level: updatedUser.miningLevel,
+      totalMined: updatedUser.totalMined,
+      miningXp: updatedUser.miningXp,
+      miningLevel: updatedUser.miningLevel,
+      lastClaimAt: updatedUser.lastClaimAt,
+      claimId: updatedUser.claims[0]?.id ?? null,
+      supply: {
+        circulating: updatedStats.circulatingSupply,
+        maxSupply: updatedStats.maxSupply,
+        remaining: Math.max(
+          0,
+          updatedStats.maxSupply - updatedStats.circulatingSupply
+        ),
+      },
     });
-  } catch (err) {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Server error";
+
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
