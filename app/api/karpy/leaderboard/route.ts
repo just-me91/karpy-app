@@ -1,9 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+type LeaderboardType = "mined" | "balance" | "referrals";
+
+type LeaderboardUser = {
+  wallet: string;
+  balance: number;
+  referrals: number;
+  totalMined: number;
+  miningLevel: number;
+};
+
 export async function GET(req: NextRequest) {
   try {
-    const type = req.nextUrl.searchParams.get("type") || "mined";
+    const typeParam = req.nextUrl.searchParams.get("type") || "mined";
+    const type: LeaderboardType =
+      typeParam === "balance" || typeParam === "referrals" ? typeParam : "mined";
+
     const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || 20), 100);
 
     const orderBy =
@@ -13,7 +26,7 @@ export async function GET(req: NextRequest) {
         ? { referrals: "desc" as const }
         : { totalMined: "desc" as const };
 
-    const users = await db.user.findMany({
+    const users: LeaderboardUser[] = await db.user.findMany({
       take: limit,
       orderBy,
       select: {
@@ -28,7 +41,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       type,
-      items: users.map((user, index) => ({
+      items: users.map((user: LeaderboardUser, index: number) => ({
         rank: index + 1,
         wallet: user.wallet,
         shortWallet: `${user.wallet.slice(0, 4)}...${user.wallet.slice(-4)}`,
@@ -38,10 +51,8 @@ export async function GET(req: NextRequest) {
         miningLevel: user.miningLevel,
       })),
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Leaderboard error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Leaderboard error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
