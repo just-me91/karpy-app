@@ -8,6 +8,36 @@ import {
   XP_PER_CLAIM,
 } from "@/lib/karpy";
 
+type TaskCompletionItem = {
+  taskId: string;
+};
+
+type ClaimItem = {
+  id: string;
+  amount: number;
+  createdAt: Date;
+  userId: string;
+};
+
+type UserWithRelations = {
+  wallet: string;
+  balance: number;
+  streak: number;
+  referrals: number;
+  referralCode: string;
+  totalMined: number;
+  miningXp: number;
+  miningLevel: number;
+  taskCompletions: TaskCompletionItem[];
+  claims: ClaimItem[];
+};
+
+type TaskDefinition = {
+  id: string;
+  title: string;
+  reward: number;
+};
+
 export async function GET(req: NextRequest) {
   try {
     const wallet = req.nextUrl.searchParams.get("wallet") || "";
@@ -16,16 +46,16 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
     }
 
-    let user = await db.user.findUnique({
+    let user = (await db.user.findUnique({
       where: { wallet },
       include: {
         taskCompletions: true,
         claims: true,
       },
-    });
+    })) as UserWithRelations | null;
 
     if (!user) {
-      user = await db.user.create({
+      user = (await db.user.create({
         data: {
           wallet,
           referralCode: makeReferralCode(wallet),
@@ -34,12 +64,14 @@ export async function GET(req: NextRequest) {
           taskCompletions: true,
           claims: true,
         },
-      });
+      })) as UserWithRelations;
     }
 
-    const completed = new Set(user.taskCompletions.map((t) => t.taskId));
+    const completed = new Set(
+      user.taskCompletions.map((t: TaskCompletionItem) => t.taskId)
+    );
 
-    const tasks = TASKS.map((t) => ({
+    const tasks = TASKS.map((t: TaskDefinition) => ({
       ...t,
       done: completed.has(t.id),
     }));
@@ -68,10 +100,8 @@ export async function GET(req: NextRequest) {
       },
       tasks,
     });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "Server error" },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : "Server error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
