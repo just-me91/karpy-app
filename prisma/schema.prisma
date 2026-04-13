@@ -1,5 +1,6 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -7,18 +8,22 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  wallet        String   @unique
-  username      String?
-  referralCode  String   @unique
-  referredBy    String?
-  balance       Int      @default(0)
-  streak        Int      @default(0)
-  referrals     Int      @default(0)
-  lastClaimAt   DateTime?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  claims        Claim[]
+  id              String           @id @default(cuid())
+  wallet          String           @unique
+  username        String?
+  referralCode    String           @unique
+  referredBy      String?
+  balance         Int              @default(0)
+  streak          Int              @default(0)
+  referrals       Int              @default(0)
+  totalMined      Int              @default(0)
+  miningXp        Int              @default(0)
+  miningLevel     Int              @default(1)
+  lastClaimAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  claims          Claim[]
   taskCompletions TaskCompletion[]
 }
 
@@ -27,6 +32,7 @@ model Claim {
   userId    String
   amount    Int
   createdAt DateTime @default(now())
+
   user      User     @relation(fields: [userId], references: [id])
 }
 
@@ -36,7 +42,16 @@ model TaskCompletion {
   taskId    String
   reward    Int
   createdAt DateTime @default(now())
+
   user      User     @relation(fields: [userId], references: [id])
 
   @@unique([userId, taskId])
+}
+
+model TokenStats {
+  id                String   @id @default("main")
+  maxSupply         Int
+  circulatingSupply Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
