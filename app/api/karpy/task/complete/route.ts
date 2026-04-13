@@ -37,14 +37,14 @@ export async function POST(req: NextRequest) {
     }
 
     const nextXp = user.miningXp + XP_PER_TASK;
-    const levelInfo = getMiningLevelFromXp(nextXp);
+    const newLevel = getMiningLevelFromXp(nextXp);
 
     const updated = await db.user.update({
       where: { id: user.id },
       data: {
         balance: { increment: task.reward },
         miningXp: nextXp,
-        miningLevel: levelInfo.level,
+        miningLevel: newLevel,
         taskCompletions: {
           create: {
             taskId,
