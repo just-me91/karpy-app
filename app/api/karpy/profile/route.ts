@@ -8,6 +8,7 @@ import {
   XP_PER_CLAIM,
 } from "@/lib/karpy";
 
+// ✅ TYPES (fără erori TS)
 type TaskCompletionItem = {
   taskId: string;
 };
@@ -54,6 +55,7 @@ export async function GET(req: NextRequest) {
       },
     })) as UserWithRelations | null;
 
+    // ✅ create user dacă nu există
     if (!user) {
       user = (await db.user.create({
         data: {
@@ -67,18 +69,26 @@ export async function GET(req: NextRequest) {
       })) as UserWithRelations;
     }
 
+    // ✅ FIX IMPORTANT (fără any)
     const completed = new Set(
       user.taskCompletions.map((t: TaskCompletionItem) => t.taskId)
     );
 
-    const tasks = TASKS.map((t: TaskDefinition) => ({
+    // ✅ FIX IMPORTANT (fără any)
+    const tasks = (TASKS as TaskDefinition[]).map((t) => ({
       ...t,
       done: completed.has(t.id),
     }));
 
     const nextStreak = user.streak + 1;
     const previewXp = user.miningXp + XP_PER_CLAIM;
-    const preview = await getDailyMiningReward(nextStreak, wallet, previewXp);
+
+    const preview = await getDailyMiningReward(
+      nextStreak,
+      wallet,
+      previewXp
+    );
+
     const progress = getMiningProgress(user.miningXp);
 
     return NextResponse.json({
@@ -101,7 +111,12 @@ export async function GET(req: NextRequest) {
       tasks,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Server error";
+
+    return NextResponse.json(
+      { error: message },
+      { status: 500 }
+    );
   }
 }
