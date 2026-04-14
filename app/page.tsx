@@ -14,8 +14,8 @@ type MiningProgress = {
   currentLevel: number;
   currentXp: number;
   nextLevel: number | null;
-  xpIntoLevel: number;
-  xpNeededForNext: number;
+  xpInLevel: number;
+  xpNeeded: number;
   progressPercent: number;
   multiplier: number;
 };
@@ -114,8 +114,8 @@ export default function HomePage() {
     currentLevel: 1,
     currentXp: 0,
     nextLevel: 2,
-    xpIntoLevel: 0,
-    xpNeededForNext: 100,
+    xpInLevel: 0,
+    xpNeeded: 100,
     progressPercent: 0,
     multiplier: 1,
   });
@@ -755,11 +755,11 @@ export default function HomePage() {
                     />
                     <InfoChip
                       label="XP In Level"
-                      value={`${formatNumber(miningProgress.xpIntoLevel)}`}
+                      value={`${formatNumber(miningProgress.xpInLevel)}`}
                     />
                     <InfoChip
                       label="XP Needed"
-                      value={`${formatNumber(miningProgress.xpNeededForNext)}`}
+                      value={`${formatNumber(miningProgress.xpNeeded)}`}
                     />
                   </div>
 
