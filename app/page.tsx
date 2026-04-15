@@ -28,6 +28,12 @@ type RewardPreview = {
   totalReward: number;
 };
 
+type Supply = {
+  circulating: number;
+  maxSupply: number;
+  remaining: number;
+};
+
 type ProfileResponse = {
   wallet: string;
   balance: number;
@@ -40,6 +46,7 @@ type ProfileResponse = {
   miningProgress: MiningProgress;
   rewardPreview: RewardPreview;
   tasks: Task[];
+  supply: Supply;
 };
 
 type LeaderboardItem = {
@@ -58,9 +65,10 @@ function formatTime(seconds: number) {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = seconds % 60;
-  return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(
-    secs
-  ).padStart(2, "0")}`;
+  return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(
+    2,
+    "0"
+  )}:${String(secs).padStart(2, "0")}`;
 }
 
 function formatNumber(value: number) {
@@ -91,6 +99,11 @@ export default function HomePage() {
   const [totalMined, setTotalMined] = useState(0);
   const [miningXp, setMiningXp] = useState(0);
   const [miningLevel, setMiningLevel] = useState(1);
+  const [supply, setSupply] = useState<Supply>({
+    circulating: 0,
+    maxSupply: 1,
+    remaining: 0,
+  });
 
   const [status, setStatus] = useState("Ready to mine KARPY");
   const [claimLoading, setClaimLoading] = useState(false);
@@ -103,11 +116,11 @@ export default function HomePage() {
   const [lastClaimAt, setLastClaimAt] = useState<number | null>(null);
 
   const [rewardPreview, setRewardPreview] = useState<RewardPreview>({
-    baseReward: 1000,
+    baseReward: 250,
     streakBonus: 0,
     holderBonus: 0,
     levelMultiplier: 1,
-    totalReward: 1000,
+    totalReward: 250,
   });
 
   const [miningProgress, setMiningProgress] = useState<MiningProgress>({
@@ -120,7 +133,8 @@ export default function HomePage() {
     multiplier: 1,
   });
 
-  const [leaderboardType, setLeaderboardType] = useState<LeaderboardType>("mined");
+  const [leaderboardType, setLeaderboardType] =
+    useState<LeaderboardType>("mined");
   const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
 
@@ -134,11 +148,16 @@ export default function HomePage() {
 
     try {
       setStatus("Loading profile...");
-      const res = await fetch(`/api/karpy/profile?wallet=${encodeURIComponent(finalWallet)}`);
+      const res = await fetch(
+        `/api/karpy/profile?wallet=${encodeURIComponent(finalWallet)}`
+      );
       const data: ProfileResponse | { error: string } = await res.json();
 
       if (!res.ok || "error" in data) {
-        setStatus(("error" in data ? data.error : "Failed to load profile") || "Failed to load profile");
+        setStatus(
+          ("error" in data ? data.error : "Failed to load profile") ||
+            "Failed to load profile"
+        );
         return;
       }
 
@@ -154,9 +173,12 @@ export default function HomePage() {
       setMiningLevel(data.miningLevel);
       setMiningProgress(data.miningProgress);
       setRewardPreview(data.rewardPreview);
+      setSupply(data.supply);
       setStatus("Profile loaded successfully");
-    } catch (error: any) {
-      setStatus(error?.message || "Profile load failed");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Profile load failed";
+      setStatus(message);
     }
   }
 
@@ -184,9 +206,8 @@ export default function HomePage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-wallet": loadedWallet,
         },
-        body: "{}",
+        body: JSON.stringify({ wallet: loadedWallet }),
       });
 
       const data = await res.json();
@@ -198,13 +219,23 @@ export default function HomePage() {
           setSecondsLeft(data.secondsRemaining);
         }
 
+        if (typeof data.cooldownMs === "number") {
+          setSecondsLeft(Math.ceil(data.cooldownMs / 1000));
+        }
+
         return;
       }
 
       setBalance(data.balance ?? 0);
       setStreak(data.streak ?? 0);
-      setLastClaimAt(data.lastClaimAt ?? null);
-      setSecondsLeft(24 * 60 * 60);
+      setLastClaimAt(data.lastClaimAt ? new Date(data.lastClaimAt).getTime() : null);
+
+      if (data.cooldownMs) {
+        setSecondsLeft(Math.ceil(data.cooldownMs / 1000));
+      } else {
+        setSecondsLeft(24 * 60 * 60);
+      }
+
       setTotalMined(data.totalMined ?? totalMined);
       setMiningXp(data.miningXp ?? miningXp);
       setMiningLevel(data.miningLevel ?? miningLevel);
@@ -217,11 +248,16 @@ export default function HomePage() {
         totalReward: data.reward ?? prev.totalReward,
       }));
 
+      if (data.supply) {
+        setSupply(data.supply);
+      }
+
       setStatus(`Mining successful: +${data.reward} KPY`);
       await loadProfile(loadedWallet);
       await loadLeaderboard(leaderboardType);
-    } catch (error: any) {
-      setStatus(error?.message || "Claim failed");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Claim failed";
+      setStatus(message);
     } finally {
       setClaimLoading(false);
     }
@@ -249,11 +285,14 @@ export default function HomePage() {
       }
 
       setBalance(data.balance ?? balance);
+      setMiningXp(data.miningXp ?? miningXp);
+      setMiningLevel(data.miningLevel ?? miningLevel);
       setStatus(`Task completed: +${data.reward} KPY`);
       await loadProfile(loadedWallet);
       await loadLeaderboard(leaderboardType);
-    } catch (error: any) {
-      setStatus(error?.message || "Task failed");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Task failed";
+      setStatus(message);
     } finally {
       setTaskLoading(null);
     }
@@ -289,8 +328,10 @@ export default function HomePage() {
       setReferralInput("");
       await loadProfile(loadedWallet);
       await loadLeaderboard(leaderboardType);
-    } catch (error: any) {
-      setStatus(error?.message || "Referral failed");
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Referral failed";
+      setStatus(message);
     } finally {
       setReferralLoading(false);
     }
@@ -334,11 +375,21 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [secondsLeft]);
 
-  const pendingTasks = useMemo(() => tasks.filter((t) => !t.done).length, [tasks]);
-  const completedTasks = useMemo(() => tasks.filter((t) => t.done).length, [tasks]);
+  const pendingTasks = useMemo(
+    () => tasks.filter((t) => !t.done).length,
+    [tasks]
+  );
+  const completedTasks = useMemo(
+    () => tasks.filter((t) => t.done).length,
+    [tasks]
+  );
 
   const totalPreviewReward = rewardPreview.totalReward;
   const canMine = !claimLoading && secondsLeft === 0;
+  const supplyPercent = Math.max(
+    0,
+    Math.min(100, (supply.circulating / Math.max(1, supply.maxSupply)) * 100)
+  );
 
   return (
     <main
@@ -454,8 +505,8 @@ export default function HomePage() {
                   lineHeight: 1.6,
                 }}
               >
-                Daily mining, missions, referrals, progression and competitive leaderboard
-                built around the real KARPY brand and coin identity.
+                Daily mining, missions, referrals, progression and competitive
+                leaderboard built around the real KARPY brand and coin identity.
               </p>
 
               <div
@@ -495,7 +546,8 @@ export default function HomePage() {
                 Load Profile
               </button>
               <div style={{ color: "#8fa4c4", marginTop: 12 }}>
-                Loaded wallet: <strong style={{ color: "white" }}>{loadedWallet}</strong>
+                Loaded wallet:{" "}
+                <strong style={{ color: "white" }}>{loadedWallet}</strong>
               </div>
             </section>
 
@@ -565,10 +617,16 @@ export default function HomePage() {
                     }}
                   >
                     <div style={{ fontSize: 24, fontWeight: 900 }}>
-                      {claimLoading ? "MINING..." : secondsLeft > 0 ? "COOLDOWN" : "MINE"}
+                      {claimLoading
+                        ? "MINING..."
+                        : secondsLeft > 0
+                        ? "COOLDOWN"
+                        : "MINE"}
                     </div>
                     <div style={{ fontSize: 12, marginTop: 6, opacity: 0.95 }}>
-                      {secondsLeft > 0 ? formatTime(secondsLeft) : "Tap logo to earn"}
+                      {secondsLeft > 0
+                        ? formatTime(secondsLeft)
+                        : "Tap logo to earn"}
                     </div>
                   </div>
                 </button>
@@ -580,7 +638,8 @@ export default function HomePage() {
                     color: "#9fc3ff",
                   }}
                 >
-                  Next total reward: <strong>{formatNumber(totalPreviewReward)} KPY</strong>
+                  Next total reward:{" "}
+                  <strong>{formatNumber(totalPreviewReward)} KPY</strong>
                 </div>
               </div>
             </section>
@@ -589,9 +648,18 @@ export default function HomePage() {
               <h2 style={sectionTitle}>Reward Breakdown</h2>
 
               <div style={{ display: "grid", gap: 10 }}>
-                <RewardRow label="Base reward" value={`${formatNumber(rewardPreview.baseReward)} KPY`} />
-                <RewardRow label="Streak bonus" value={`${formatNumber(rewardPreview.streakBonus)} KPY`} />
-                <RewardRow label="Holder bonus" value={`${formatNumber(rewardPreview.holderBonus)} KPY`} />
+                <RewardRow
+                  label="Base reward"
+                  value={`${formatNumber(rewardPreview.baseReward)} KPY`}
+                />
+                <RewardRow
+                  label="Streak bonus"
+                  value={`${formatNumber(rewardPreview.streakBonus)} KPY`}
+                />
+                <RewardRow
+                  label="Holder bonus"
+                  value={`${formatNumber(rewardPreview.holderBonus)} KPY`}
+                />
                 <RewardRow
                   label="Level multiplier"
                   value={`x${rewardPreview.levelMultiplier.toFixed(2)}`}
@@ -604,13 +672,16 @@ export default function HomePage() {
               </div>
 
               <div style={{ color: "#7f93b1", marginTop: 14, fontSize: 13 }}>
-                Reward preview now reflects streak bonus, holder bonus and mining level multiplier.
+                Reward preview now reflects streak bonus, holder bonus and
+                mining level multiplier.
               </div>
             </section>
 
             <section style={leftCard}>
               <h2 style={sectionTitle}>Referral</h2>
-              <div style={{ color: "#8fa4c4", marginBottom: 8, fontSize: 14 }}>Your code</div>
+              <div style={{ color: "#8fa4c4", marginBottom: 8, fontSize: 14 }}>
+                Your code
+              </div>
 
               <div style={codeBox}>{referralCode || "-"}</div>
 
@@ -650,12 +721,104 @@ export default function HomePage() {
                   gap: 14,
                 }}
               >
-                <StatCard label="Balance" value={`${formatNumber(balance)}`} accent="#60a5fa" />
-                <StatCard label="Total Mined" value={`${formatNumber(totalMined)}`} accent="#f59e0b" />
-                <StatCard label="Referrals" value={`${formatNumber(referrals)}`} accent="#34d399" />
-                <StatCard label="Tasks Left" value={`${pendingTasks}`} accent="#f472b6" />
-                <StatCard label="Tasks Done" value={`${completedTasks}`} accent="#a78bfa" />
-                <StatCard label="Mining XP" value={`${formatNumber(miningXp)}`} accent="#22d3ee" />
+                <StatCard
+                  label="Balance"
+                  value={`${formatNumber(balance)}`}
+                  accent="#60a5fa"
+                />
+                <StatCard
+                  label="Total Mined"
+                  value={`${formatNumber(totalMined)}`}
+                  accent="#f59e0b"
+                />
+                <StatCard
+                  label="Referrals"
+                  value={`${formatNumber(referrals)}`}
+                  accent="#34d399"
+                />
+                <StatCard
+                  label="Tasks Left"
+                  value={`${pendingTasks}`}
+                  accent="#f472b6"
+                />
+                <StatCard
+                  label="Tasks Done"
+                  value={`${completedTasks}`}
+                  accent="#a78bfa"
+                />
+                <StatCard
+                  label="Mining XP"
+                  value={`${formatNumber(miningXp)}`}
+                  accent="#22d3ee"
+                />
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>Token Supply</h2>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+                  gap: 14,
+                  marginBottom: 16,
+                }}
+              >
+                <StatCard
+                  label="Circulating"
+                  value={`${formatNumber(supply.circulating)}`}
+                  accent="#22c55e"
+                />
+                <StatCard
+                  label="Max Supply"
+                  value={`${formatNumber(supply.maxSupply)}`}
+                  accent="#eab308"
+                />
+                <StatCard
+                  label="Remaining"
+                  value={`${formatNumber(supply.remaining)}`}
+                  accent="#f97316"
+                />
+              </div>
+
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  marginBottom: 10,
+                  color: "#cbd5e1",
+                }}
+              >
+                <span>Supply mined</span>
+                <strong>{supplyPercent.toFixed(2)}%</strong>
+              </div>
+
+              <div
+                style={{
+                  height: 16,
+                  width: "100%",
+                  borderRadius: 999,
+                  background: "rgba(255,255,255,0.08)",
+                  overflow: "hidden",
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width: `${supplyPercent}%`,
+                    borderRadius: 999,
+                    background: "linear-gradient(90deg, #22c55e, #4ade80)",
+                    boxShadow: "0 0 20px rgba(34,197,94,0.35)",
+                    transition: "width 0.35s ease",
+                  }}
+                />
+              </div>
+
+              <div style={{ marginTop: 14, color: "#8fa4c4", fontSize: 13 }}>
+                As more KARPY is mined, emission tightens and scarcity increases.
               </div>
             </section>
 
@@ -691,7 +854,13 @@ export default function HomePage() {
                   >
                     Current Level
                   </div>
-                  <div style={{ fontSize: 54, fontWeight: 900, color: "#93c5fd" }}>
+                  <div
+                    style={{
+                      fontSize: 54,
+                      fontWeight: 900,
+                      color: "#93c5fd",
+                    }}
+                  >
                     {miningLevel}
                   </div>
                   <div style={{ marginTop: 8, color: "#dbeafe" }}>
@@ -728,7 +897,8 @@ export default function HomePage() {
                         height: "100%",
                         width: `${miningProgress.progressPercent}%`,
                         borderRadius: 999,
-                        background: "linear-gradient(90deg, #38bdf8, #60a5fa, #818cf8)",
+                        background:
+                          "linear-gradient(90deg, #38bdf8, #60a5fa, #818cf8)",
                         boxShadow: "0 0 20px rgba(96,165,250,0.35)",
                         transition: "width 0.35s ease",
                       }}
@@ -739,7 +909,8 @@ export default function HomePage() {
                     style={{
                       marginTop: 14,
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fit, minmax(160px, 1fr))",
                       gap: 12,
                     }}
                   >
@@ -750,7 +921,9 @@ export default function HomePage() {
                     <InfoChip
                       label="Next Level"
                       value={
-                        miningProgress.nextLevel ? `Level ${miningProgress.nextLevel}` : "Max"
+                        miningProgress.nextLevel
+                          ? `Level ${miningProgress.nextLevel}`
+                          : "Max"
                       }
                     />
                     <InfoChip
@@ -808,7 +981,9 @@ export default function HomePage() {
               </div>
 
               <div style={{ color: "#8fa4c4", marginBottom: 14, fontSize: 14 }}>
-                {leaderboardLoading ? "Loading leaderboard..." : getLeaderboardLabel(leaderboardType)}
+                {leaderboardLoading
+                  ? "Loading leaderboard..."
+                  : getLeaderboardLabel(leaderboardType)}
               </div>
 
               <div style={{ display: "grid", gap: 12 }}>
@@ -818,8 +993,16 @@ export default function HomePage() {
                       <div style={rankBadge}>#{item.rank}</div>
 
                       <div>
-                        <div style={{ fontWeight: 800, fontSize: 17 }}>{item.shortWallet}</div>
-                        <div style={{ color: "#8fa4c4", marginTop: 4, fontSize: 13 }}>
+                        <div style={{ fontWeight: 800, fontSize: 17 }}>
+                          {item.shortWallet}
+                        </div>
+                        <div
+                          style={{
+                            color: "#8fa4c4",
+                            marginTop: 4,
+                            fontSize: 13,
+                          }}
+                        >
                           Level {item.miningLevel}
                         </div>
                       </div>
@@ -829,7 +1012,13 @@ export default function HomePage() {
                       <div style={{ fontWeight: 900, fontSize: 18 }}>
                         {getLeaderboardValue(item, leaderboardType)}
                       </div>
-                      <div style={{ color: "#8fa4c4", marginTop: 4, fontSize: 13 }}>
+                      <div
+                        style={{
+                          color: "#8fa4c4",
+                          marginTop: 4,
+                          fontSize: 13,
+                        }}
+                      >
                         Balance: {formatNumber(item.balance)} KPY
                       </div>
                     </div>
@@ -849,7 +1038,9 @@ export default function HomePage() {
                 {tasks.map((task) => (
                   <div key={task.id} style={taskRow}>
                     <div>
-                      <div style={{ fontWeight: 800, fontSize: 18 }}>{task.title}</div>
+                      <div style={{ fontWeight: 800, fontSize: 18 }}>
+                        {task.title}
+                      </div>
                       <div style={{ color: "#8fa4c4", marginTop: 4 }}>
                         Reward: {formatNumber(task.reward)} KPY
                       </div>
@@ -864,7 +1055,11 @@ export default function HomePage() {
                       disabled={task.done || taskLoading === task.id}
                       onClick={() => completeTask(task.id)}
                     >
-                      {task.done ? "Done" : taskLoading === task.id ? "Saving..." : "Complete"}
+                      {task.done
+                        ? "Done"
+                        : taskLoading === task.id
+                        ? "Saving..."
+                        : "Complete"}
                     </button>
                   </div>
                 ))}
@@ -939,7 +1134,9 @@ function StatCard({
       >
         {label}
       </div>
-      <div style={{ fontSize: 30, fontWeight: 900, color: accent }}>{value}</div>
+      <div style={{ fontSize: 30, fontWeight: 900, color: accent }}>
+        {value}
+      </div>
     </div>
   );
 }
@@ -961,7 +1158,9 @@ function RewardRow({
         gap: 12,
         padding: "12px 14px",
         borderRadius: 14,
-        background: strong ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+        background: strong
+          ? "rgba(59,130,246,0.12)"
+          : "rgba(255,255,255,0.03)",
         border: strong
           ? "1px solid rgba(59,130,246,0.18)"
           : "1px solid rgba(255,255,255,0.06)",
@@ -989,7 +1188,9 @@ function InfoChip({
         border: "1px solid rgba(255,255,255,0.06)",
       }}
     >
-      <div style={{ color: "#8fa4c4", fontSize: 12, marginBottom: 6 }}>{label}</div>
+      <div style={{ color: "#8fa4c4", fontSize: 12, marginBottom: 6 }}>
+        {label}
+      </div>
       <div style={{ fontWeight: 800 }}>{value}</div>
     </div>
   );
@@ -1013,7 +1214,9 @@ function TabButton({
         border: active
           ? "1px solid rgba(96,165,250,0.35)"
           : "1px solid rgba(255,255,255,0.08)",
-        background: active ? "rgba(59,130,246,0.18)" : "rgba(255,255,255,0.04)",
+        background: active
+          ? "rgba(59,130,246,0.18)"
+          : "rgba(255,255,255,0.04)",
         color: active ? "#dbeafe" : "white",
         fontWeight: 800,
         cursor: "pointer",
@@ -1163,7 +1366,8 @@ const rankBadge: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  background: "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(14,165,233,0.12))",
+  background:
+    "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(14,165,233,0.12))",
   border: "1px solid rgba(96,165,250,0.18)",
   fontWeight: 900,
   color: "#dbeafe",
