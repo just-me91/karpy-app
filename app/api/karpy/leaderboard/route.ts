@@ -15,9 +15,12 @@ export async function GET(req: NextRequest) {
   try {
     const typeParam = req.nextUrl.searchParams.get("type") || "mined";
     const type: LeaderboardType =
-      typeParam === "balance" || typeParam === "referrals" ? typeParam : "mined";
+      typeParam === "balance" || typeParam === "referrals"
+        ? typeParam
+        : "mined";
 
-    const limit = Math.min(Number(req.nextUrl.searchParams.get("limit") || 20), 100);
+    const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 10);
+    const limit = Math.max(1, Math.min(limitRaw, 100));
 
     const orderBy =
       type === "balance"
@@ -26,7 +29,7 @@ export async function GET(req: NextRequest) {
         ? { referrals: "desc" as const }
         : { totalMined: "desc" as const };
 
-    const users: LeaderboardUser[] = await db.user.findMany({
+    const users = (await db.user.findMany({
       take: limit,
       orderBy,
       select: {
@@ -36,23 +39,33 @@ export async function GET(req: NextRequest) {
         totalMined: true,
         miningLevel: true,
       },
-    });
+    })) as LeaderboardUser[];
+
+    const items = users.map((user: LeaderboardUser, index: number) => ({
+      rank: index + 1,
+      wallet: user.wallet,
+      shortWallet:
+        user.wallet.length > 10
+          ? `${user.wallet.slice(0, 4)}...${user.wallet.slice(-4)}`
+          : user.wallet,
+      balance: user.balance,
+      referrals: user.referrals,
+      totalMined: user.totalMined,
+      miningLevel: user.miningLevel,
+    }));
 
     return NextResponse.json({
       ok: true,
       type,
-      items: users.map((user: LeaderboardUser, index: number) => ({
-        rank: index + 1,
-        wallet: user.wallet,
-        shortWallet: `${user.wallet.slice(0, 4)}...${user.wallet.slice(-4)}`,
-        balance: user.balance,
-        referrals: user.referrals,
-        totalMined: user.totalMined,
-        miningLevel: user.miningLevel,
-      })),
+      items,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Leaderboard error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Leaderboard error";
+
+    return NextResponse.json(
+      { error: message },
+      { status: 500 }
+    );
   }
 }
