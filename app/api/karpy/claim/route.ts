@@ -1,56 +1,48 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
-  calculateMiningReward,
+  calculateBaseReward,
+  applyMultipliers,
   MAX_SUPPLY,
-  makeReferralCode,
   getMiningLevelFromXp,
 } from "@/lib/karpy";
 
-const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const COOLDOWN = 24 * 60 * 60 * 1000;
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const walletRaw = typeof body?.wallet === "string" ? body.wallet : "";
-    const cleanWallet = walletRaw.toLowerCase().trim();
+    const wallet = String(body.wallet || "").toLowerCase();
 
-    if (!cleanWallet) {
+    if (!wallet) {
       return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
     }
 
-    let user = await db.user.findUnique({
-      where: { wallet: cleanWallet },
-    });
+    let user = await db.user.findUnique({ where: { wallet } });
 
     if (!user) {
       user = await db.user.create({
         data: {
-          wallet: cleanWallet,
-          referralCode: makeReferralCode(cleanWallet),
+          wallet,
           balance: 0,
           streak: 0,
           referrals: 0,
           totalMined: 0,
           miningXp: 0,
           miningLevel: 1,
+          boostMultiplier: 1,
+          isPremium: false,
         },
       });
     }
 
     if (user.lastClaimAt) {
-      const lastClaimTs = new Date(user.lastClaimAt).getTime();
-      const nowTs = Date.now();
-      const remainingMs = COOLDOWN_MS - (nowTs - lastClaimTs);
-
-      if (remainingMs > 0) {
-        return NextResponse.json(
-          {
-            error: "Cooldown active",
-            cooldownMs: remainingMs,
-          },
-          { status: 429 }
-        );
+      const diff = Date.now() - new Date(user.lastClaimAt).getTime();
+      if (diff < COOLDOWN) {
+        return NextResponse.json({
+          error: "Cooldown",
+          cooldownMs: COOLDOWN - diff,
+        });
       }
     }
 
@@ -65,40 +57,25 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (stats.circulatingSupply >= stats.maxSupply) {
-      return NextResponse.json(
-        { error: "Max supply reached" },
-        { status: 400 }
-      );
-    }
-
-    const rawReward = calculateMiningReward({
+    const baseReward = calculateBaseReward({
       level: user.miningLevel,
       streak: user.streak + 1,
-      referrals: user.referrals,
       circulatingSupply: stats.circulatingSupply,
-      wallet: cleanWallet,
     });
 
-    const remainingSupply = Math.max(
-      0,
-      stats.maxSupply - stats.circulatingSupply
-    );
-
-    const finalReward = Math.min(rawReward, remainingSupply);
-
-    if (finalReward <= 0) {
-      return NextResponse.json(
-        { error: "No reward available" },
-        { status: 400 }
-      );
-    }
+    const finalReward = applyMultipliers({
+      baseReward,
+      isPremium: user.isPremium,
+      premiumExpiresAt: user.premiumExpiresAt,
+      boostMultiplier: user.boostMultiplier,
+      boostExpiresAt: user.boostExpiresAt,
+    });
 
     const newXp = user.miningXp + finalReward;
     const newLevel = getMiningLevelFromXp(newXp);
 
-    const updatedUser = await db.user.update({
-      where: { wallet: cleanWallet },
+    const updated = await db.user.update({
+      where: { wallet },
       data: {
         balance: { increment: finalReward },
         totalMined: { increment: finalReward },
@@ -106,21 +83,10 @@ export async function POST(req: NextRequest) {
         miningLevel: newLevel,
         streak: user.streak + 1,
         lastClaimAt: new Date(),
-        claims: {
-          create: {
-            amount: finalReward,
-          },
-        },
-      },
-      include: {
-        claims: {
-          orderBy: { createdAt: "desc" },
-          take: 1,
-        },
       },
     });
 
-    const updatedStats = await db.tokenStats.update({
+    await db.tokenStats.update({
       where: { id: stats.id },
       data: {
         circulatingSupply: { increment: finalReward },
@@ -130,27 +96,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       reward: finalReward,
-      wallet: updatedUser.wallet,
-      balance: updatedUser.balance,
-      streak: updatedUser.streak,
-      totalMined: updatedUser.totalMined,
-      miningXp: updatedUser.miningXp,
-      miningLevel: updatedUser.miningLevel,
-      lastClaimAt: updatedUser.lastClaimAt,
-      claimId: updatedUser.claims[0]?.id ?? null,
-      supply: {
-        circulating: updatedStats.circulatingSupply,
-        maxSupply: updatedStats.maxSupply,
-        remaining: Math.max(
-          0,
-          updatedStats.maxSupply - updatedStats.circulatingSupply
-        ),
-      },
+      balance: updated.balance,
+      miningLevel: updated.miningLevel,
     });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Server error";
-
-    return NextResponse.json({ error: message }, { status: 500 });
+  } catch (e: any) {
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
 }
