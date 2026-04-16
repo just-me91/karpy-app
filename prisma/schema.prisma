@@ -21,7 +21,13 @@ model User {
   lastClaimAt     DateTime?
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+  
+  isPremium        Boolean   @default(false)
+  premiumExpiresAt DateTime?
 
+  boostMultiplier  Float     @default(1)
+  boostExpiresAt   DateTime?
+ 
   claims          Claim[]
   taskCompletions TaskCompletion[]
 }
