@@ -5,6 +5,7 @@ import {
   applyMultipliers,
   MAX_SUPPLY,
   getMiningLevelFromXp,
+  makeReferralCode,
 } from "@/lib/karpy";
 
 const COOLDOWN = 24 * 60 * 60 * 1000;
@@ -12,7 +13,7 @@ const COOLDOWN = 24 * 60 * 60 * 1000;
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const wallet = String(body.wallet || "").toLowerCase();
+    const wallet = String(body.wallet || "").toLowerCase().trim();
 
     if (!wallet) {
       return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
@@ -24,6 +25,7 @@ export async function POST(req: NextRequest) {
       user = await db.user.create({
         data: {
           wallet,
+          referralCode: makeReferralCode(wallet),
           balance: 0,
           streak: 0,
           referrals: 0,
@@ -38,11 +40,15 @@ export async function POST(req: NextRequest) {
 
     if (user.lastClaimAt) {
       const diff = Date.now() - new Date(user.lastClaimAt).getTime();
+
       if (diff < COOLDOWN) {
-        return NextResponse.json({
-          error: "Cooldown",
-          cooldownMs: COOLDOWN - diff,
-        });
+        return NextResponse.json(
+          {
+            error: "Cooldown active",
+            cooldownMs: COOLDOWN - diff,
+          },
+          { status: 400 }
+        );
       }
     }
 
@@ -57,9 +63,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const nextStreak = user.streak + 1;
+
     const baseReward = calculateBaseReward({
       level: user.miningLevel,
-      streak: user.streak + 1,
+      streak: nextStreak,
       circulatingSupply: stats.circulatingSupply,
     });
 
@@ -81,7 +89,7 @@ export async function POST(req: NextRequest) {
         totalMined: { increment: finalReward },
         miningXp: newXp,
         miningLevel: newLevel,
-        streak: user.streak + 1,
+        streak: nextStreak,
         lastClaimAt: new Date(),
       },
     });
@@ -97,9 +105,15 @@ export async function POST(req: NextRequest) {
       ok: true,
       reward: finalReward,
       balance: updated.balance,
+      streak: updated.streak,
+      totalMined: updated.totalMined,
+      miningXp: updated.miningXp,
       miningLevel: updated.miningLevel,
+      referralCode: updated.referralCode,
+      lastClaimAt: updated.lastClaimAt,
     });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Claim failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
