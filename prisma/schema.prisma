@@ -7,30 +7,34 @@ datasource db {
 }
 
 model User {
-  id              String           @id @default(cuid())
-  wallet          String           @unique
-  username        String?
-  passwordHash    String?
-  referralCode    String           @unique
-  referredBy      String?
-  balance         Int              @default(0)
-  streak          Int              @default(0)
-  referrals       Int              @default(0)
-  totalMined      Int              @default(0)
-  miningXp        Int              @default(0)
-  miningLevel     Int              @default(1)
-  lastClaimAt     DateTime?
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  
-  isPremium        Boolean   @default(false)
-  premiumExpiresAt DateTime?
+  id                 String           @id @default(cuid())
+  wallet             String           @unique
+  username           String?          @unique
+  passwordHash       String?
+  referralCode       String           @unique
+  referredBy         String?
+  balance            Int              @default(0)
+  streak             Int              @default(0)
+  referrals          Int              @default(0)
+  totalMined         Int              @default(0)
+  miningXp           Int              @default(0)
+  miningLevel        Int              @default(1)
+  lastClaimAt        DateTime?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
 
-  boostMultiplier  Float     @default(1)
-  boostExpiresAt   DateTime?
- 
-  claims          Claim[]
-  taskCompletions TaskCompletion[]
+  isPremium          Boolean          @default(false)
+  premiumExpiresAt   DateTime?
+
+  boostMultiplier    Float            @default(1)
+  boostExpiresAt     DateTime?
+
+  authNonce          String?
+  authNonceExpiresAt DateTime?
+
+  claims             Claim[]
+  taskCompletions    TaskCompletion[]
+  sessions           KarpySession[]
 }
 
 model Claim {
@@ -39,7 +43,7 @@ model Claim {
   amount    Int
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model TaskCompletion {
@@ -49,7 +53,7 @@ model TaskCompletion {
   reward    Int
   createdAt DateTime @default(now())
 
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, taskId])
 }
@@ -57,7 +61,17 @@ model TaskCompletion {
 model TokenStats {
   id                String   @id @default(cuid())
   maxSupply         Int
-  circulatingSupply Int @default(0)
+  circulatingSupply Int      @default(0)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model KarpySession {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
