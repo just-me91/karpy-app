@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const existingUsername = await db.user.findUnique({
+    const existingUsername = await db.user.findFirst({
       where: { username },
     });
 
