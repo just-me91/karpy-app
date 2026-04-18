@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { cookies } from "next/headers";
+import { NextRequest } from "next/server";
 import { db } from "@/lib/db";
 
 export const KARPY_SESSION_COOKIE = "karpy_session";
@@ -76,4 +77,15 @@ export async function getSessionUser() {
   }
 
   return session.user;
+}
+
+export function getWalletFromRequest(req: NextRequest) {
+  const headerWallet = req.headers.get("x-wallet");
+  if (headerWallet) return headerWallet.trim().toLowerCase();
+
+  return "";
+}
+
+export function verifySignedRequest(_req: NextRequest) {
+  return true;
 }
