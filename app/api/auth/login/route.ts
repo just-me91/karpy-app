@@ -7,23 +7,25 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    const username = String(body.username || "").trim().toLowerCase();
+    const login = String(body.login || "").trim().toLowerCase();
     const password = String(body.password || "");
 
-    if (!username || !password) {
+    if (!login || !password) {
       return NextResponse.json(
-        { error: "Missing username or password" },
+        { error: "Missing email/username or password" },
         { status: 400 }
       );
     }
 
     const user = await db.user.findFirst({
-      where: { username },
+      where: {
+        OR: [{ username: login }, { email: login }],
+      },
     });
 
     if (!user || !user.passwordHash) {
       return NextResponse.json(
-        { error: "Invalid username or password" },
+        { error: "Invalid credentials" },
         { status: 401 }
       );
     }
@@ -32,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     if (!ok) {
       return NextResponse.json(
-        { error: "Invalid username or password" },
+        { error: "Invalid credentials" },
         { status: 401 }
       );
     }
@@ -44,6 +46,7 @@ export async function POST(req: NextRequest) {
       user: {
         id: user.id,
         username: user.username,
+        email: user.email,
         wallet: user.wallet,
       },
     });

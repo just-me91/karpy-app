@@ -4,7 +4,9 @@ import { useState } from "react";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [loginValue, setLoginValue] = useState("");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState("Ready");
 
@@ -17,7 +19,11 @@ export default function AuthPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          username,
+          email,
+          password,
+        }),
       });
 
       const data = await res.json();
@@ -44,7 +50,10 @@ export default function AuthPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({
+          login: loginValue,
+          password,
+        }),
       });
 
       const data = await res.json();
@@ -79,7 +88,7 @@ export default function AuthPage() {
       <div
         style={{
           width: "100%",
-          maxWidth: 520,
+          maxWidth: 560,
           borderRadius: 24,
           padding: 28,
           background: "rgba(16,22,34,0.94)",
@@ -100,29 +109,61 @@ export default function AuthPage() {
           </button>
         </div>
 
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username"
-          style={input}
-        />
-
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          style={input}
-        />
-
         {mode === "login" ? (
-          <button onClick={handleLogin} style={primaryButton}>
-            Login
-          </button>
+          <>
+            <input
+              value={loginValue}
+              onChange={(e) => setLoginValue(e.target.value)}
+              placeholder="Username or email"
+              style={input}
+            />
+
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              style={input}
+            />
+
+            <button onClick={handleLogin} style={primaryButton}>
+              Login
+            </button>
+
+            <div style={{ marginTop: 14 }}>
+              <a href="/forgot-password" style={{ color: "#60a5fa" }}>
+                Forgot password?
+              </a>
+            </div>
+          </>
         ) : (
-          <button onClick={handleRegister} style={primaryButton}>
-            Create Account
-          </button>
+          <>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="Username"
+              style={input}
+            />
+
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Email"
+              style={input}
+            />
+
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              style={input}
+            />
+
+            <button onClick={handleRegister} style={primaryButton}>
+              Create Account
+            </button>
+          </>
         )}
 
         <div
