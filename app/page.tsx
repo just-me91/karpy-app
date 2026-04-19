@@ -3,26 +3,67 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 
-type SessionUser = {
+type Task = {
   id: string;
+  title: string;
+  reward: number;
+  done: boolean;
+};
+
+type MiningProgress = {
+  currentLevel: number;
+  currentXp: number;
+  nextLevel: number | null;
+  xpIntoLevel: number;
+  xpNeededForNext: number;
+  progressPercent: number;
+  multiplier: number;
+};
+
+type RewardPreview = {
+  baseReward: number;
+  streakBonus: number;
+  holderBonus: number;
+  levelMultiplier: number;
+  premiumFactor: number;
+  boostFactor: number;
+  totalReward: number;
+};
+
+type ProfileResponse = {
   wallet: string;
-  username?: string | null;
   balance: number;
   streak: number;
   referrals: number;
+  referralCode: string;
   totalMined: number;
   miningXp: number;
   miningLevel: number;
-  referralCode: string;
+  miningProgress: MiningProgress;
+  rewardPreview: RewardPreview;
+  tasks: Task[];
   isPremium: boolean;
   premiumExpiresAt?: string | null;
   boostMultiplier?: number;
   boostExpiresAt?: string | null;
+  supply: {
+    circulating: number;
+    maxSupply: number;
+    remaining: number;
+  };
 };
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-GB").format(value || 0);
-}
+type LeaderboardItem = {
+  rank: number;
+  wallet: string;
+  shortWallet: string;
+  balance: number;
+  referrals: number;
+  totalMined: number;
+  miningLevel: number;
+};
+
+type LeaderboardType = "mined" | "balance" | "referrals";
 
 function formatTime(seconds: number) {
   const hrs = Math.floor(seconds / 3600);
@@ -33,59 +74,145 @@ function formatTime(seconds: number) {
   ).padStart(2, "0")}`;
 }
 
+function formatNumber(value: number) {
+  return new Intl.NumberFormat("en-GB").format(value || 0);
+}
+
+function getLeaderboardValue(item: LeaderboardItem, type: LeaderboardType) {
+  if (type === "balance") return `${formatNumber(item.balance)} KPY`;
+  if (type === "referrals") return `${formatNumber(item.referrals)}`;
+  return `${formatNumber(item.totalMined)} KPY`;
+}
+
+function getLeaderboardLabel(type: LeaderboardType) {
+  if (type === "balance") return "Top Balance";
+  if (type === "referrals") return "Top Referrals";
+  return "Top Mined";
+}
+
 export default function HomePage() {
-  const [user, setUser] = useState<SessionUser | null>(null);
-  const [status, setStatus] = useState("Loading session...");
-  const [loading, setLoading] = useState(true);
+  const [wallet, setWallet] = useState("");
+  const [loadedWallet, setLoadedWallet] = useState("");
+
+  const [balance, setBalance] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [referrals, setReferrals] = useState(0);
+  const [referralCode, setReferralCode] = useState("");
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [totalMined, setTotalMined] = useState(0);
+  const [miningXp, setMiningXp] = useState(0);
+  const [miningLevel, setMiningLevel] = useState(1);
+  const [isPremium, setIsPremium] = useState(false);
+  const [premiumExpiresAt, setPremiumExpiresAt] = useState<string | null>(null);
+  const [boostMultiplier, setBoostMultiplier] = useState(1);
+  const [boostExpiresAt, setBoostExpiresAt] = useState<string | null>(null);
+
+  const [status, setStatus] = useState("Loading profile...");
   const [claimLoading, setClaimLoading] = useState(false);
+  const [taskLoading, setTaskLoading] = useState<string | null>(null);
+  const [referralInput, setReferralInput] = useState("");
+  const [referralLoading, setReferralLoading] = useState(false);
+  const [copyingReferral, setCopyingReferral] = useState(false);
+  const [premiumLoading, setPremiumLoading] = useState(false);
+  const [boostLoading, setBoostLoading] = useState(false);
+
   const [secondsLeft, setSecondsLeft] = useState(0);
 
-  async function loadUser() {
-    try {
-      setStatus("Checking session...");
+  const [rewardPreview, setRewardPreview] = useState<RewardPreview>({
+    baseReward: 100,
+    streakBonus: 0,
+    holderBonus: 0,
+    levelMultiplier: 1,
+    premiumFactor: 1,
+    boostFactor: 1,
+    totalReward: 100,
+  });
 
-      const res = await fetch("/api/auth/me", {
+  const [miningProgress, setMiningProgress] = useState<MiningProgress>({
+    currentLevel: 1,
+    currentXp: 0,
+    nextLevel: 2,
+    xpIntoLevel: 0,
+    xpNeededForNext: 100,
+    progressPercent: 0,
+    multiplier: 1,
+  });
+
+  const [supply, setSupply] = useState({
+    circulating: 0,
+    maxSupply: 1,
+    remaining: 1,
+  });
+
+  const [leaderboardType, setLeaderboardType] = useState<LeaderboardType>("mined");
+  const [leaderboard, setLeaderboard] = useState<LeaderboardItem[]>([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+
+  async function loadProfile() {
+    try {
+      setStatus("Loading profile...");
+
+      const res = await fetch("/api/karpy/profile", {
         method: "GET",
         cache: "no-store",
       });
 
+      const data: ProfileResponse | { error: string } = await res.json();
+
+      if (!res.ok || "error" in data) {
+        setStatus(("error" in data ? data.error : "Failed to load profile") || "Failed to load profile");
+        if (res.status === 401) {
+          window.location.href = "/auth";
+        }
+        return;
+      }
+
+      setLoadedWallet(data.wallet);
+      setWallet(data.wallet);
+      setBalance(data.balance);
+      setStreak(data.streak);
+      setReferrals(data.referrals);
+      setReferralCode(data.referralCode);
+      setTasks(data.tasks);
+      setTotalMined(data.totalMined);
+      setMiningXp(data.miningXp);
+      setMiningLevel(data.miningLevel);
+      setMiningProgress(data.miningProgress);
+      setRewardPreview(data.rewardPreview);
+      setIsPremium(data.isPremium);
+      setPremiumExpiresAt(data.premiumExpiresAt || null);
+      setBoostMultiplier(data.boostMultiplier || 1);
+      setBoostExpiresAt(data.boostExpiresAt || null);
+      setSupply(data.supply);
+      setStatus("Profile loaded successfully");
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Profile load failed";
+      setStatus(message);
+    }
+  }
+
+  async function loadLeaderboard(type: LeaderboardType = leaderboardType) {
+    try {
+      setLeaderboardLoading(true);
+      const res = await fetch(`/api/karpy/leaderboard?type=${type}&limit=10`);
       const data = await res.json();
 
-      if (!res.ok) {
-        setStatus(data.error || "Failed to load session");
-        setLoading(false);
-        return;
-      }
-
-      if (!data.user) {
-        window.location.href = "/auth";
-        return;
-      }
-
-      setUser(data.user);
-      setStatus("Ready");
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Unknown error";
-      setStatus(message);
+      if (!res.ok) return;
+      setLeaderboard(data.items || []);
+    } catch {
+      // ignore
     } finally {
-      setLoading(false);
+      setLeaderboardLoading(false);
     }
   }
 
   async function handleClaim() {
-    if (!user || claimLoading) return;
-
     try {
       setClaimLoading(true);
       setStatus("Mining KARPY...");
 
       const res = await fetch("/api/karpy/claim", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-wallet": user.wallet,
-        },
-        body: JSON.stringify({}),
       });
 
       const data = await res.json();
@@ -100,20 +227,164 @@ export default function HomePage() {
         return;
       }
 
+      setBalance(data.balance ?? 0);
+      setStreak(data.streak ?? 0);
+      setTotalMined(data.totalMined ?? totalMined);
+      setMiningXp(data.miningXp ?? miningXp);
+      setMiningLevel(data.miningLevel ?? miningLevel);
+      setSecondsLeft(data.secondsRemaining ?? 24 * 60 * 60);
+
+      setRewardPreview((prev) => ({
+        ...prev,
+        baseReward: data.baseReward ?? prev.baseReward,
+        streakBonus: data.streakBonus ?? prev.streakBonus,
+        holderBonus: data.holderBonus ?? prev.holderBonus,
+        levelMultiplier: data.levelMultiplier ?? prev.levelMultiplier,
+        totalReward: data.reward ?? prev.totalReward,
+      }));
+
       setStatus(`Mining successful: +${data.reward} KPY`);
-
-      if (typeof data.secondsRemaining === "number") {
-        setSecondsLeft(data.secondsRemaining);
-      } else {
-        setSecondsLeft(24 * 60 * 60);
-      }
-
-      await loadUser();
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Claim error";
+      await loadProfile();
+      await loadLeaderboard(leaderboardType);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Claim failed";
       setStatus(message);
     } finally {
       setClaimLoading(false);
+    }
+  }
+
+  async function completeTask(taskId: string) {
+    try {
+      setTaskLoading(taskId);
+      setStatus(`Completing task ${taskId}...`);
+
+      const res = await fetch("/api/karpy/task/complete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ taskId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Task failed");
+        return;
+      }
+
+      setBalance(data.balance ?? balance);
+      setStatus(`Task completed: +${data.reward} KPY`);
+      await loadProfile();
+      await loadLeaderboard(leaderboardType);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Task failed";
+      setStatus(message);
+    } finally {
+      setTaskLoading(null);
+    }
+  }
+
+  async function applyReferral() {
+    try {
+      if (!referralInput.trim()) {
+        setStatus("Enter a referral code first");
+        return;
+      }
+
+      setReferralLoading(true);
+      setStatus("Applying referral...");
+
+      const res = await fetch("/api/karpy/referral/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code: referralInput.trim() }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Referral failed");
+        return;
+      }
+
+      setStatus(data.message || "Referral applied");
+      setReferralInput("");
+      await loadProfile();
+      await loadLeaderboard(leaderboardType);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Referral failed";
+      setStatus(message);
+    } finally {
+      setReferralLoading(false);
+    }
+  }
+
+  async function copyReferralCode() {
+    try {
+      if (!referralCode) return;
+      setCopyingReferral(true);
+      await navigator.clipboard.writeText(referralCode);
+      setStatus("Referral code copied");
+    } catch {
+      setStatus("Could not copy referral code");
+    } finally {
+      setCopyingReferral(false);
+    }
+  }
+
+  async function buyPremium() {
+    try {
+      setPremiumLoading(true);
+      setStatus("Activating premium...");
+
+      const res = await fetch("/api/karpy/premium/apply", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Premium failed");
+        return;
+      }
+
+      setStatus(data.message || "Premium active");
+      await loadProfile();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Premium failed";
+      setStatus(message);
+    } finally {
+      setPremiumLoading(false);
+    }
+  }
+
+  async function buyBoost() {
+    try {
+      setBoostLoading(true);
+      setStatus("Activating x2 boost...");
+
+      const res = await fetch("/api/karpy/boost/apply", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Boost failed");
+        return;
+      }
+
+      setStatus(data.message || "Boost active");
+      await loadProfile();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Boost failed";
+      setStatus(message);
+    } finally {
+      setBoostLoading(false);
     }
   }
 
@@ -127,8 +398,13 @@ export default function HomePage() {
   }
 
   useEffect(() => {
-    loadUser();
+    loadProfile();
+    loadLeaderboard("mined");
   }, []);
+
+  useEffect(() => {
+    loadLeaderboard(leaderboardType);
+  }, [leaderboardType]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -146,29 +422,11 @@ export default function HomePage() {
     return () => clearInterval(timer);
   }, [secondsLeft]);
 
-  const canMine = useMemo(() => !claimLoading && secondsLeft === 0, [claimLoading, secondsLeft]);
+  const pendingTasks = useMemo(() => tasks.filter((t) => !t.done).length, [tasks]);
+  const completedTasks = useMemo(() => tasks.filter((t) => t.done).length, [tasks]);
 
-  if (loading) {
-    return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background:
-            "radial-gradient(circle at top, #17335d 0%, #0a1220 30%, #05080f 100%)",
-          color: "white",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: "Arial, sans-serif",
-          fontSize: 24,
-        }}
-      >
-        Loading...
-      </main>
-    );
-  }
-
-  if (!user) return null;
+  const totalPreviewReward = rewardPreview.totalReward;
+  const canMine = !claimLoading && secondsLeft === 0;
 
   return (
     <main
@@ -284,8 +542,8 @@ export default function HomePage() {
                   lineHeight: 1.6,
                 }}
               >
-                Daily mining, progression and account-based access now work on real
-                user sessions without the old test wallet hack.
+                Daily mining, missions, referrals, progression and premium boosts
+                packed into one clean account-based dashboard.
               </p>
 
               <div
@@ -295,11 +553,11 @@ export default function HomePage() {
                   flexWrap: "wrap",
                 }}
               >
-                <MiniPill label="Wallet" value={user.wallet} />
-                <MiniPill label="Username" value={user.username || "-"} />
-                <MiniPill label="Balance" value={`${formatNumber(user.balance)} KPY`} />
-                <MiniPill label="Level" value={`${user.miningLevel}`} />
-                <MiniPill label="Premium" value={user.isPremium ? "YES" : "NO"} />
+                <MiniPill label="Wallet" value={loadedWallet} />
+                <MiniPill label="Balance" value={`${formatNumber(balance)} KPY`} />
+                <MiniPill label="Streak" value={`${streak} days`} />
+                <MiniPill label="Level" value={`${miningLevel}`} />
+                <MiniPill label="Boost" value={`x${boostMultiplier.toFixed(2)}`} />
               </div>
             </div>
           </div>
@@ -314,6 +572,14 @@ export default function HomePage() {
           }}
         >
           <div style={{ display: "grid", gap: 20 }}>
+            <section style={leftCard}>
+              <h2 style={sectionTitle}>Wallet</h2>
+              <input value={wallet} readOnly style={inputStyle} />
+              <div style={{ color: "#8fa4c4", marginTop: 12 }}>
+                Logged wallet: <strong style={{ color: "white" }}>{loadedWallet}</strong>
+              </div>
+            </section>
+
             <section style={minePanel}>
               <div style={{ textAlign: "center" }}>
                 <div
@@ -395,35 +661,89 @@ export default function HomePage() {
                     color: "#9fc3ff",
                   }}
                 >
-                  Current balance: <strong>{formatNumber(user.balance)} KPY</strong>
+                  Next total reward: <strong>{formatNumber(totalPreviewReward)} KPY</strong>
                 </div>
               </div>
             </section>
 
             <section style={leftCard}>
-              <h2 style={sectionTitle}>Account</h2>
+              <h2 style={sectionTitle}>Reward Breakdown</h2>
 
               <div style={{ display: "grid", gap: 10 }}>
-                <RewardRow label="Wallet" value={user.wallet} />
-                <RewardRow label="Username" value={user.username || "-"} />
-                <RewardRow label="Referral code" value={user.referralCode || "-"} />
-                <RewardRow label="Premium" value={user.isPremium ? "Enabled" : "Disabled"} />
+                <RewardRow label="Base reward" value={`${formatNumber(rewardPreview.baseReward)} KPY`} />
+                <RewardRow label="Streak bonus" value={`${formatNumber(rewardPreview.streakBonus)} KPY`} />
+                <RewardRow label="Holder bonus" value={`${formatNumber(rewardPreview.holderBonus)} KPY`} />
+                <RewardRow label="Level multiplier" value={`x${rewardPreview.levelMultiplier.toFixed(2)}`} />
+                <RewardRow label="Premium factor" value={`x${rewardPreview.premiumFactor.toFixed(2)}`} />
+                <RewardRow label="Boost factor" value={`x${rewardPreview.boostFactor.toFixed(2)}`} />
+                <RewardRow label="Total next reward" value={`${formatNumber(totalPreviewReward)} KPY`} strong />
               </div>
+            </section>
 
-              <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-                <button
-                  style={secondaryButton}
-                  onClick={() => {
-                    window.location.href = "/auth";
-                  }}
-                >
-                  Auth Page
+            <section style={leftCard}>
+              <h2 style={sectionTitle}>Referral</h2>
+              <div style={{ color: "#8fa4c4", marginBottom: 8, fontSize: 14 }}>Your code</div>
+
+              <div style={codeBox}>{referralCode || "-"}</div>
+
+              <button
+                style={{ ...secondaryButton, marginBottom: 12 }}
+                onClick={copyReferralCode}
+                disabled={!referralCode || copyingReferral}
+              >
+                {copyingReferral ? "Copying..." : "Copy Referral Code"}
+              </button>
+
+              <input
+                value={referralInput}
+                onChange={(e) => setReferralInput(e.target.value)}
+                placeholder="Enter referral code"
+                style={inputStyle}
+              />
+
+              <button
+                style={primaryButton}
+                onClick={applyReferral}
+                disabled={referralLoading}
+              >
+                {referralLoading ? "Applying..." : "Apply Referral"}
+              </button>
+            </section>
+
+            <section style={leftCard}>
+              <h2 style={sectionTitle}>Premium Store</h2>
+
+              <div style={{ display: "grid", gap: 10 }}>
+                <RewardRow label="Premium 30 days" value="5000 KPY" />
+                <button style={primaryButton} onClick={buyPremium} disabled={premiumLoading}>
+                  {premiumLoading ? "Activating..." : "Buy Premium"}
                 </button>
 
-                <button style={secondaryButton} onClick={logout}>
-                  Logout
+                <RewardRow label="x2 Boost 24h" value="1000 KPY" />
+                <button style={primaryButton} onClick={buyBoost} disabled={boostLoading}>
+                  {boostLoading ? "Activating..." : "Buy x2 Boost"}
                 </button>
+
+                <RewardRow label="Premium active" value={isPremium ? "YES" : "NO"} />
+                <RewardRow label="Premium expires" value={premiumExpiresAt || "-"} />
+                <RewardRow label="Boost expires" value={boostExpiresAt || "-"} />
               </div>
+            </section>
+
+            <section style={leftCard}>
+              <h2 style={sectionTitle}>Account</h2>
+              <button
+                style={{ ...secondaryButton, marginBottom: 10 }}
+                onClick={() => {
+                  window.location.href = "/auth";
+                }}
+              >
+                Auth Page
+              </button>
+
+              <button style={secondaryButton} onClick={logout}>
+                Logout
+              </button>
             </section>
           </div>
 
@@ -438,12 +758,211 @@ export default function HomePage() {
                   gap: 14,
                 }}
               >
-                <StatCard label="Balance" value={`${formatNumber(user.balance)}`} accent="#60a5fa" />
-                <StatCard label="Total Mined" value={`${formatNumber(user.totalMined)}`} accent="#f59e0b" />
-                <StatCard label="Referrals" value={`${formatNumber(user.referrals)}`} accent="#34d399" />
-                <StatCard label="Mining XP" value={`${formatNumber(user.miningXp)}`} accent="#22d3ee" />
-                <StatCard label="Streak" value={`${formatNumber(user.streak)}`} accent="#a78bfa" />
-                <StatCard label="Level" value={`${formatNumber(user.miningLevel)}`} accent="#f472b6" />
+                <StatCard label="Balance" value={`${formatNumber(balance)}`} accent="#60a5fa" />
+                <StatCard label="Total Mined" value={`${formatNumber(totalMined)}`} accent="#f59e0b" />
+                <StatCard label="Referrals" value={`${formatNumber(referrals)}`} accent="#34d399" />
+                <StatCard label="Tasks Left" value={`${pendingTasks}`} accent="#f472b6" />
+                <StatCard label="Tasks Done" value={`${completedTasks}`} accent="#a78bfa" />
+                <StatCard label="Mining XP" value={`${formatNumber(miningXp)}`} accent="#22d3ee" />
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>Mining Level</h2>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "220px 1fr",
+                  gap: 20,
+                  alignItems: "center",
+                }}
+              >
+                <div
+                  style={{
+                    borderRadius: 22,
+                    padding: 20,
+                    background:
+                      "linear-gradient(135deg, rgba(59,130,246,0.16), rgba(14,165,233,0.08))",
+                    border: "1px solid rgba(96,165,250,0.18)",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 13,
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      color: "#8fa4c4",
+                      marginBottom: 12,
+                    }}
+                  >
+                    Current Level
+                  </div>
+                  <div style={{ fontSize: 54, fontWeight: 900, color: "#93c5fd" }}>
+                    {miningLevel}
+                  </div>
+                  <div style={{ marginTop: 8, color: "#dbeafe" }}>
+                    Multiplier x{miningProgress.multiplier.toFixed(2)}
+                  </div>
+                </div>
+
+                <div>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 12,
+                      marginBottom: 10,
+                      color: "#cbd5e1",
+                    }}
+                  >
+                    <span>Level progress</span>
+                    <strong>{miningProgress.progressPercent}%</strong>
+                  </div>
+
+                  <div
+                    style={{
+                      height: 16,
+                      width: "100%",
+                      borderRadius: 999,
+                      background: "rgba(255,255,255,0.08)",
+                      overflow: "hidden",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        height: "100%",
+                        width: `${miningProgress.progressPercent}%`,
+                        borderRadius: 999,
+                        background: "linear-gradient(90deg, #38bdf8, #60a5fa, #818cf8)",
+                        boxShadow: "0 0 20px rgba(96,165,250,0.35)",
+                        transition: "width 0.35s ease",
+                      }}
+                    />
+                  </div>
+
+                  <div
+                    style={{
+                      marginTop: 14,
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                      gap: 12,
+                    }}
+                  >
+                    <InfoChip label="Current XP" value={`${formatNumber(miningProgress.currentXp)}`} />
+                    <InfoChip label="Next Level" value={miningProgress.nextLevel ? `Level ${miningProgress.nextLevel}` : "Max"} />
+                    <InfoChip label="XP In Level" value={`${formatNumber(miningProgress.xpIntoLevel)}`} />
+                    <InfoChip label="XP Needed" value={`${formatNumber(miningProgress.xpNeededForNext)}`} />
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>Supply</h2>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: 14,
+                }}
+              >
+                <StatCard label="Circulating" value={`${formatNumber(supply.circulating)}`} accent="#38bdf8" />
+                <StatCard label="Max Supply" value={`${formatNumber(supply.maxSupply)}`} accent="#a78bfa" />
+                <StatCard label="Remaining" value={`${formatNumber(supply.remaining)}`} accent="#34d399" />
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                  flexWrap: "wrap",
+                  marginBottom: 16,
+                }}
+              >
+                <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Leaderboard</h2>
+
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  <TabButton active={leaderboardType === "mined"} onClick={() => setLeaderboardType("mined")}>
+                    Mined
+                  </TabButton>
+                  <TabButton active={leaderboardType === "balance"} onClick={() => setLeaderboardType("balance")}>
+                    Balance
+                  </TabButton>
+                  <TabButton active={leaderboardType === "referrals"} onClick={() => setLeaderboardType("referrals")}>
+                    Referrals
+                  </TabButton>
+                </div>
+              </div>
+
+              <div style={{ color: "#8fa4c4", marginBottom: 14, fontSize: 14 }}>
+                {leaderboardLoading ? "Loading leaderboard..." : getLeaderboardLabel(leaderboardType)}
+              </div>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {leaderboard.map((item) => (
+                  <div key={`${leaderboardType}-${item.wallet}`} style={leaderboardRow}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={rankBadge}>#{item.rank}</div>
+
+                      <div>
+                        <div style={{ fontWeight: 800, fontSize: 17 }}>{item.shortWallet}</div>
+                        <div style={{ color: "#8fa4c4", marginTop: 4, fontSize: 13 }}>
+                          Level {item.miningLevel}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 900, fontSize: 18 }}>
+                        {getLeaderboardValue(item, leaderboardType)}
+                      </div>
+                      <div style={{ color: "#8fa4c4", marginTop: 4, fontSize: 13 }}>
+                        Balance: {formatNumber(item.balance)} KPY
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {!leaderboardLoading && leaderboard.length === 0 ? (
+                  <div style={emptyBox}>No leaderboard data yet.</div>
+                ) : null}
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>Tasks</h2>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {tasks.map((task) => (
+                  <div key={task.id} style={taskRow}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 18 }}>{task.title}</div>
+                      <div style={{ color: "#8fa4c4", marginTop: 4 }}>
+                        Reward: {formatNumber(task.reward)} KPY
+                      </div>
+                    </div>
+
+                    <button
+                      style={{
+                        ...taskButton,
+                        opacity: task.done ? 0.7 : 1,
+                        cursor: task.done ? "not-allowed" : "pointer",
+                      }}
+                      disabled={task.done || taskLoading === task.id}
+                      onClick={() => completeTask(task.id)}
+                    >
+                      {task.done ? "Done" : taskLoading === task.id ? "Saving..." : "Complete"}
+                    </button>
+                  </div>
+                ))}
               </div>
             </section>
 
@@ -517,9 +1036,11 @@ function StatCard({
 function RewardRow({
   label,
   value,
+  strong,
 }: {
   label: string;
   value: string;
+  strong?: boolean;
 }) {
   return (
     <div
@@ -529,13 +1050,66 @@ function RewardRow({
         gap: 12,
         padding: "12px 14px",
         borderRadius: 14,
+        background: strong ? "rgba(59,130,246,0.12)" : "rgba(255,255,255,0.03)",
+        border: strong
+          ? "1px solid rgba(59,130,246,0.18)"
+          : "1px solid rgba(255,255,255,0.06)",
+      }}
+    >
+      <span style={{ color: "#8fa4c4" }}>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function InfoChip({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        borderRadius: 14,
         background: "rgba(255,255,255,0.03)",
         border: "1px solid rgba(255,255,255,0.06)",
       }}
     >
-      <span style={{ color: "#8fa4c4" }}>{label}</span>
-      <strong style={{ textAlign: "right", wordBreak: "break-word" }}>{value}</strong>
+      <div style={{ color: "#8fa4c4", fontSize: 12, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontWeight: 800 }}>{value}</div>
     </div>
+  );
+}
+
+function TabButton({
+  children,
+  active,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "10px 14px",
+        borderRadius: 999,
+        border: active
+          ? "1px solid rgba(96,165,250,0.35)"
+          : "1px solid rgba(255,255,255,0.08)",
+        background: active ? "rgba(59,130,246,0.18)" : "rgba(255,255,255,0.04)",
+        color: active ? "#dbeafe" : "white",
+        fontWeight: 800,
+        cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -571,6 +1145,29 @@ const sectionTitle: React.CSSProperties = {
   fontWeight: 900,
 };
 
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "14px 14px",
+  borderRadius: 14,
+  border: "1px solid rgba(255,255,255,0.08)",
+  background: "rgba(7,10,16,0.9)",
+  color: "white",
+  marginBottom: 12,
+  outline: "none",
+};
+
+const primaryButton: React.CSSProperties = {
+  width: "100%",
+  padding: "13px 16px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(135deg, #2563eb, #3b82f6)",
+  color: "white",
+  fontWeight: 800,
+  cursor: "pointer",
+  boxShadow: "0 12px 26px rgba(37,99,235,0.28)",
+};
+
 const secondaryButton: React.CSSProperties = {
   width: "100%",
   padding: "13px 16px",
@@ -595,6 +1192,26 @@ const mineLogoButton: React.CSSProperties = {
     "inset 0 10px 25px rgba(255,255,255,0.08), inset 0 -20px 30px rgba(0,0,0,0.35), 0 22px 50px rgba(37,99,235,0.35), 0 0 40px rgba(59,130,246,0.25)",
 };
 
+const taskRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 16,
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  padding: 16,
+  borderRadius: 16,
+};
+
+const taskButton: React.CSSProperties = {
+  padding: "12px 18px",
+  borderRadius: 14,
+  border: "none",
+  background: "linear-gradient(135deg, #2563eb, #3b82f6)",
+  color: "white",
+  fontWeight: 800,
+};
+
 const statusBox: React.CSSProperties = {
   padding: 16,
   borderRadius: 16,
@@ -604,4 +1221,47 @@ const statusBox: React.CSSProperties = {
   minHeight: 80,
   display: "flex",
   alignItems: "center",
+};
+
+const codeBox: React.CSSProperties = {
+  padding: 14,
+  borderRadius: 14,
+  background: "rgba(255,255,255,0.04)",
+  border: "1px solid rgba(255,255,255,0.07)",
+  fontWeight: 900,
+  fontSize: 20,
+  marginBottom: 12,
+  wordBreak: "break-word",
+};
+
+const leaderboardRow: React.CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 16,
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  padding: 16,
+  borderRadius: 16,
+};
+
+const rankBadge: React.CSSProperties = {
+  minWidth: 52,
+  height: 52,
+  borderRadius: 16,
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  background: "linear-gradient(135deg, rgba(59,130,246,0.2), rgba(14,165,233,0.12))",
+  border: "1px solid rgba(96,165,250,0.18)",
+  fontWeight: 900,
+  color: "#dbeafe",
+};
+
+const emptyBox: React.CSSProperties = {
+  padding: 18,
+  borderRadius: 16,
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(255,255,255,0.06)",
+  color: "#8fa4c4",
 };

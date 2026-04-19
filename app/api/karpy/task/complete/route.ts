@@ -1,63 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { TASKS, XP_PER_TASK, getMiningLevelFromXp } from "@/lib/karpy";
-import { getWalletFromRequest, verifySignedRequest } from "@/lib/auth";
-
-type TaskDefinition = {
-  id: string;
-  title: string;
-  reward: number;
-};
+import { getSessionUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    if (!verifySignedRequest(req)) {
-      return NextResponse.json(
-        { error: "Invalid signature" },
-        { status: 401 }
-      );
-    }
+    const user = await getSessionUser();
 
-    const walletRaw = getWalletFromRequest(req);
-    const wallet = String(walletRaw || "").toLowerCase().trim();
-
-    if (!wallet) {
-      return NextResponse.json(
-        { error: "Missing wallet" },
-        { status: 400 }
-      );
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await req.json();
-    const taskId = String(body?.taskId || "").trim();
+    const taskId = String(body.taskId || "");
 
-    if (!taskId) {
-      return NextResponse.json(
-        { error: "Missing taskId" },
-        { status: 400 }
-      );
-    }
-
-    const task = (TASKS as TaskDefinition[]).find(
-      (t: TaskDefinition) => t.id === taskId
-    );
-
+    const task = TASKS.find((t) => t.id === taskId);
     if (!task) {
-      return NextResponse.json(
-        { error: "Invalid task" },
-        { status: 400 }
-      );
-    }
-
-    const user = await db.user.findUnique({
-      where: { wallet },
-    });
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "User not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Invalid task" }, { status: 400 });
     }
 
     const existing = await db.taskCompletion.findUnique({
@@ -70,21 +29,18 @@ export async function POST(req: NextRequest) {
     });
 
     if (existing) {
-      return NextResponse.json(
-        { error: "Task already completed" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Task already completed" }, { status: 400 });
     }
 
     const nextXp = user.miningXp + XP_PER_TASK;
-    const newLevel = getMiningLevelFromXp(nextXp);
+    const nextLevel = getMiningLevelFromXp(nextXp);
 
     const updated = await db.user.update({
       where: { id: user.id },
       data: {
         balance: { increment: task.reward },
         miningXp: nextXp,
-        miningLevel: newLevel,
+        miningLevel: nextLevel,
         taskCompletions: {
           create: {
             taskId,
@@ -100,14 +56,9 @@ export async function POST(req: NextRequest) {
       balance: updated.balance,
       miningXp: updated.miningXp,
       miningLevel: updated.miningLevel,
-      completedTaskId: taskId,
     });
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Task error";
-
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Task error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

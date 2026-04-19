@@ -1,90 +1,66 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getWalletFromRequest, verifySignedRequest } from "@/lib/auth";
+import {
+  REFERRAL_REWARD_NEW_USER,
+  REFERRAL_REWARD_OWNER,
+} from "@/lib/karpy";
+import { getSessionUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
-    if (!verifySignedRequest(req)) {
-      return NextResponse.json({ ok: false, error: "Invalid signature" }, { status: 401 });
-    }
-
-    const wallet = getWalletFromRequest(req);
-    const body = await req.json().catch(() => ({}));
-    const code = String(body.code || "").trim();
-
-    if (!wallet) {
-      return NextResponse.json({ ok: false, error: "Missing wallet header" }, { status: 400 });
-    }
-
-    if (!code) {
-      return NextResponse.json({ ok: false, error: "Missing referral code" }, { status: 400 });
-    }
-
-    const user = await db.user.findUnique({
-      where: { wallet },
-    });
+    const user = await getSessionUser();
 
     if (!user) {
-      return NextResponse.json({ ok: false, error: "User not found" }, { status: 400 });
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const code = String(body.code || "").trim().toUpperCase();
+
+    if (!code) {
+      return NextResponse.json({ error: "Missing referral code" }, { status: 400 });
     }
 
     if (user.referredBy) {
-      return NextResponse.json({ ok: false, error: "Referral already used" }, { status: 400 });
+      return NextResponse.json({ error: "Referral already used" }, { status: 400 });
     }
 
-    const referrer = await db.user.findUnique({
+    const owner = await db.user.findFirst({
       where: { referralCode: code },
     });
 
-    if (!referrer) {
-      return NextResponse.json({ ok: false, error: "Invalid referral code" }, { status: 400 });
+    if (!owner) {
+      return NextResponse.json({ error: "Referral code not found" }, { status: 404 });
     }
 
-    if (referrer.wallet === wallet) {
-      return NextResponse.json({ ok: false, error: "You cannot refer yourself" }, { status: 400 });
+    if (owner.id === user.id) {
+      return NextResponse.json({ error: "You cannot use your own referral code" }, { status: 400 });
     }
 
-    await db.$transaction([
-      db.user.update({
-        where: { wallet },
-        data: {
-          referredBy: code,
-        },
-      }),
-      db.user.update({
-        where: { id: referrer.id },
-        data: {
-          referrals: { increment: 1 },
-          balance: { increment: 1500 },
-        },
-      }),
-    ]);
-
-    const updatedUser = await db.user.findUnique({
-      where: { wallet },
+    await db.user.update({
+      where: { id: user.id },
+      data: {
+        referredBy: code,
+        balance: { increment: REFERRAL_REWARD_NEW_USER },
+      },
     });
 
-    const updatedReferrer = await db.user.findUnique({
-      where: { id: referrer.id },
+    await db.user.update({
+      where: { id: owner.id },
+      data: {
+        referrals: { increment: 1 },
+        balance: { increment: REFERRAL_REWARD_OWNER },
+      },
     });
 
     return NextResponse.json({
       ok: true,
-      message: "Referral applied successfully.",
-      userWallet: wallet,
-      usedCode: code,
-      userBalance: updatedUser?.balance ?? 0,
-      referrerWallet: referrer.wallet,
-      referrerBalance: updatedReferrer?.balance ?? 0,
-      referrerReferrals: updatedReferrer?.referrals ?? 0,
+      message: "Referral applied successfully",
+      rewardUser: REFERRAL_REWARD_NEW_USER,
+      rewardOwner: REFERRAL_REWARD_OWNER,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error?.message || "Referral error",
-      },
-      { status: 500 }
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Referral failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

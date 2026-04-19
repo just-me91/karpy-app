@@ -1,116 +1,100 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import {
-  calculateBaseReward,
-  applyMultipliers,
-  MAX_SUPPLY,
+  XP_PER_CLAIM,
+  calculateDailyMiningReward,
   getMiningLevelFromXp,
-  makeReferralCode,
 } from "@/lib/karpy";
+import { getSessionUser } from "@/lib/auth";
 
-const COOLDOWN = 24 * 60 * 60 * 1000;
+const CLAIM_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const STREAK_BREAK_MS = 36 * 60 * 60 * 1000;
 
-export async function POST(req: NextRequest) {
+export async function POST() {
   try {
-    const body = await req.json();
-    const wallet = String(body.wallet || "").toLowerCase().trim();
-
-    if (!wallet) {
-      return NextResponse.json({ error: "Missing wallet" }, { status: 400 });
-    }
-
-    let user = await db.user.findUnique({ where: { wallet } });
+    const user = await getSessionUser();
 
     if (!user) {
-      user = await db.user.create({
-        data: {
-          wallet,
-          referralCode: makeReferralCode(wallet),
-          balance: 0,
-          streak: 0,
-          referrals: 0,
-          totalMined: 0,
-          miningXp: 0,
-          miningLevel: 1,
-          boostMultiplier: 1,
-          isPremium: false,
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const now = Date.now();
+    const lastClaimAt = user.lastClaimAt ? new Date(user.lastClaimAt).getTime() : 0;
+
+    if (lastClaimAt && now - lastClaimAt < CLAIM_COOLDOWN_MS) {
+      const secondsRemaining = Math.ceil((CLAIM_COOLDOWN_MS - (now - lastClaimAt)) / 1000);
+      return NextResponse.json(
+        {
+          error: "Cooldown active",
+          secondsRemaining,
         },
-      });
+        { status: 400 }
+      );
     }
 
-    if (user.lastClaimAt) {
-      const diff = Date.now() - new Date(user.lastClaimAt).getTime();
+    const nextStreak =
+      lastClaimAt && now - lastClaimAt > STREAK_BREAK_MS ? 1 : Math.max(1, user.streak + 1);
 
-      if (diff < COOLDOWN) {
-        return NextResponse.json(
-          {
-            error: "Cooldown active",
-            cooldownMs: COOLDOWN - diff,
-          },
-          { status: 400 }
-        );
-      }
-    }
+    const rewardInfo = calculateDailyMiningReward({
+      ...user,
+      streak: nextStreak,
+    });
+
+    const nextXp = user.miningXp + XP_PER_CLAIM;
+    const nextLevel = getMiningLevelFromXp(nextXp);
+
+    const updated = await db.user.update({
+      where: { id: user.id },
+      data: {
+        balance: { increment: rewardInfo.totalReward },
+        totalMined: { increment: rewardInfo.totalReward },
+        miningXp: nextXp,
+        miningLevel: nextLevel,
+        streak: nextStreak,
+        lastClaimAt: new Date(),
+      },
+    });
+
+    await db.claim.create({
+      data: {
+        userId: user.id,
+        amount: rewardInfo.totalReward,
+      },
+    });
 
     let stats = await db.tokenStats.findFirst();
 
     if (!stats) {
       stats = await db.tokenStats.create({
         data: {
-          maxSupply: MAX_SUPPLY,
+          maxSupply: 1_000_000_000,
           circulatingSupply: 0,
         },
       });
     }
 
-    const nextStreak = user.streak + 1;
-
-    const baseReward = calculateBaseReward({
-      level: user.miningLevel,
-      streak: nextStreak,
-      circulatingSupply: stats.circulatingSupply,
-    });
-
-    const finalReward = applyMultipliers({
-      baseReward,
-      isPremium: user.isPremium,
-      premiumExpiresAt: user.premiumExpiresAt,
-      boostMultiplier: user.boostMultiplier,
-      boostExpiresAt: user.boostExpiresAt,
-    });
-
-    const newXp = user.miningXp + finalReward;
-    const newLevel = getMiningLevelFromXp(newXp);
-
-    const updated = await db.user.update({
-      where: { wallet },
-      data: {
-        balance: { increment: finalReward },
-        totalMined: { increment: finalReward },
-        miningXp: newXp,
-        miningLevel: newLevel,
-        streak: nextStreak,
-        lastClaimAt: new Date(),
-      },
-    });
-
     await db.tokenStats.update({
       where: { id: stats.id },
       data: {
-        circulatingSupply: { increment: finalReward },
+        circulatingSupply: {
+          increment: rewardInfo.totalReward,
+        },
       },
     });
 
     return NextResponse.json({
       ok: true,
-      reward: finalReward,
+      reward: rewardInfo.totalReward,
+      baseReward: rewardInfo.baseReward,
+      streakBonus: rewardInfo.streakBonus,
+      holderBonus: rewardInfo.holderBonus,
+      levelMultiplier: rewardInfo.levelMultiplier,
       balance: updated.balance,
-      streak: updated.streak,
       totalMined: updated.totalMined,
       miningXp: updated.miningXp,
       miningLevel: updated.miningLevel,
-      referralCode: updated.referralCode,
-      lastClaimAt: updated.lastClaimAt,
+      streak: updated.streak,
+      secondsRemaining: 24 * 60 * 60,
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Claim failed";

@@ -1,26 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
-type LeaderboardType = "mined" | "balance" | "referrals";
-
-type LeaderboardUser = {
-  wallet: string;
-  balance: number;
-  referrals: number;
-  totalMined: number;
-  miningLevel: number;
-};
+function shortenWallet(value: string) {
+  if (!value) return "-";
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
 
 export async function GET(req: NextRequest) {
   try {
-    const typeParam = req.nextUrl.searchParams.get("type") || "mined";
-    const type: LeaderboardType =
-      typeParam === "balance" || typeParam === "referrals"
-        ? typeParam
-        : "mined";
-
-    const limitRaw = Number(req.nextUrl.searchParams.get("limit") || 10);
-    const limit = Math.max(1, Math.min(limitRaw, 100));
+    const type = String(req.nextUrl.searchParams.get("type") || "mined");
+    const limit = Math.min(50, Math.max(1, Number(req.nextUrl.searchParams.get("limit") || "10")));
 
     const orderBy =
       type === "balance"
@@ -29,9 +19,9 @@ export async function GET(req: NextRequest) {
         ? { referrals: "desc" as const }
         : { totalMined: "desc" as const };
 
-    const users = (await db.user.findMany({
-      take: limit,
+    const users = await db.user.findMany({
       orderBy,
+      take: limit,
       select: {
         wallet: true,
         balance: true,
@@ -39,33 +29,22 @@ export async function GET(req: NextRequest) {
         totalMined: true,
         miningLevel: true,
       },
-    })) as LeaderboardUser[];
-
-    const items = users.map((user: LeaderboardUser, index: number) => ({
-      rank: index + 1,
-      wallet: user.wallet,
-      shortWallet:
-        user.wallet.length > 10
-          ? `${user.wallet.slice(0, 4)}...${user.wallet.slice(-4)}`
-          : user.wallet,
-      balance: user.balance,
-      referrals: user.referrals,
-      totalMined: user.totalMined,
-      miningLevel: user.miningLevel,
-    }));
+    });
 
     return NextResponse.json({
       ok: true,
-      type,
-      items,
+      items: users.map((user, index) => ({
+        rank: index + 1,
+        wallet: user.wallet,
+        shortWallet: shortenWallet(user.wallet),
+        balance: user.balance,
+        referrals: user.referrals,
+        totalMined: user.totalMined,
+        miningLevel: user.miningLevel,
+      })),
     });
-  } catch (error: unknown) {
-    const message =
-      error instanceof Error ? error.message : "Leaderboard error";
-
-    return NextResponse.json(
-      { error: message },
-      { status: 500 }
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Leaderboard failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
