@@ -1,57 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { createSession } from "@/lib/auth";
 import { verifyPassword } from "@/lib/password";
+import { createSession } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-
-    const login = String(body.login || "").trim().toLowerCase();
+    const login = String(body.username || "");
     const password = String(body.password || "");
 
     if (!login || !password) {
-      return NextResponse.json(
-        { error: "Missing email/username or password" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing credentials" }, { status: 400 });
     }
 
+    // 🔥 DOAR username, fără email
     const user = await db.user.findFirst({
       where: {
-        OR: [{ username: login }, { email: login }],
+        username: login,
       },
     });
 
     if (!user || !user.passwordHash) {
-      return NextResponse.json(
-        { error: "Invalid credentials" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    const ok = await verifyPassword(password, user.passwordHash);
+    const valid = await verifyPassword(password, user.passwordHash);
 
-    if (!ok) {
-      return NextResponse.json(
-        { error: "Invalid credentials" },
-        { status: 401 }
-      );
+    if (!valid) {
+      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
     }
 
-    await createSession(user.id);
+    const token = await createSession(user.id);
 
-    return NextResponse.json({
-      ok: true,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        wallet: user.wallet,
-      },
+    const res = NextResponse.json({ ok: true });
+
+    res.cookies.set("karpy_session", token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
     });
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : "Login failed";
-    return NextResponse.json({ error: message }, { status: 500 });
+
+    return res;
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e.message || "Login error" },
+      { status: 500 }
+    );
   }
 }
