@@ -82,7 +82,6 @@ export async function getSessionUser() {
 export function getWalletFromRequest(req: NextRequest) {
   const headerWallet = req.headers.get("x-wallet");
   if (headerWallet) return headerWallet.trim().toLowerCase();
-
   return "";
 }
 
