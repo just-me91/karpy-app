@@ -6,6 +6,7 @@ import { createSession } from "@/lib/auth";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
+
     const username = String(body.username || "").trim().toLowerCase();
     const password = String(body.password || "");
 
@@ -24,7 +25,7 @@ export async function POST(req: NextRequest) {
 
     if (!user || !user.passwordHash) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Invalid username or password" },
         { status: 401 }
       );
     }
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
 
     if (!valid) {
       return NextResponse.json(
-        { error: "Invalid credentials" },
+        { error: "Invalid username or password" },
         { status: 401 }
       );
     }

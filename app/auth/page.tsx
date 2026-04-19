@@ -4,42 +4,11 @@ import { useState } from "react";
 
 export default function AuthPage() {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [loginValue, setLoginValue] = useState("");
-  const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [registerUsername, setRegisterUsername] = useState("");
+  const [registerPassword, setRegisterPassword] = useState("");
   const [status, setStatus] = useState("Ready");
-
-  async function handleRegister() {
-    try {
-      setStatus("Creating account...");
-
-      const res = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          username,
-          email,
-          password,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setStatus(data.error || "Register failed");
-        return;
-      }
-
-      setStatus("Account created successfully");
-      window.location.href = "/";
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : "Register failed";
-      setStatus(message);
-    }
-  }
 
   async function handleLogin() {
     try {
@@ -51,8 +20,8 @@ export default function AuthPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          login: loginValue,
-          password,
+          username: loginUsername,
+          password: loginPassword,
         }),
       });
 
@@ -67,6 +36,36 @@ export default function AuthPage() {
       window.location.href = "/";
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : "Login failed";
+      setStatus(message);
+    }
+  }
+
+  async function handleRegister() {
+    try {
+      setStatus("Creating account...");
+
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: registerUsername,
+          password: registerPassword,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Register failed");
+        return;
+      }
+
+      setStatus("Account created successfully");
+      window.location.href = "/";
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Register failed";
       setStatus(message);
     }
   }
@@ -112,16 +111,16 @@ export default function AuthPage() {
         {mode === "login" ? (
           <>
             <input
-              value={loginValue}
-              onChange={(e) => setLoginValue(e.target.value)}
-              placeholder="Username or email"
+              value={loginUsername}
+              onChange={(e) => setLoginUsername(e.target.value)}
+              placeholder="Username"
               style={input}
             />
 
             <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={loginPassword}
+              onChange={(e) => setLoginPassword(e.target.value)}
               placeholder="Password"
               style={input}
             />
@@ -129,33 +128,20 @@ export default function AuthPage() {
             <button onClick={handleLogin} style={primaryButton}>
               Login
             </button>
-
-            <div style={{ marginTop: 14 }}>
-              <a href="/forgot-password" style={{ color: "#60a5fa" }}>
-                Forgot password?
-              </a>
-            </div>
           </>
         ) : (
           <>
             <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={registerUsername}
+              onChange={(e) => setRegisterUsername(e.target.value)}
               placeholder="Username"
               style={input}
             />
 
             <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="Email"
-              style={input}
-            />
-
-            <input
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={registerPassword}
+              onChange={(e) => setRegisterPassword(e.target.value)}
               placeholder="Password"
               style={input}
             />
