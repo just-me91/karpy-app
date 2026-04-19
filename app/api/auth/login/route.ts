@@ -6,46 +6,50 @@ import { createSession } from "@/lib/auth";
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const login = String(body.username || "");
+    const username = String(body.username || "").trim().toLowerCase();
     const password = String(body.password || "");
 
-    if (!login || !password) {
-      return NextResponse.json({ error: "Missing credentials" }, { status: 400 });
+    if (!username || !password) {
+      return NextResponse.json(
+        { error: "Missing credentials" },
+        { status: 400 }
+      );
     }
 
-    // 🔥 DOAR username, fără email
     const user = await db.user.findFirst({
       where: {
-        username: login,
+        username,
       },
     });
 
     if (!user || !user.passwordHash) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid credentials" },
+        { status: 401 }
+      );
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
 
     if (!valid) {
-      return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid credentials" },
+        { status: 401 }
+      );
     }
 
-    const token = await createSession(user.id);
+    await createSession(user.id);
 
-    const res = NextResponse.json({ ok: true });
-
-    res.cookies.set("karpy_session", token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      path: "/",
+    return NextResponse.json({
+      ok: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        wallet: user.wallet,
+      },
     });
-
-    return res;
-  } catch (e: any) {
-    return NextResponse.json(
-      { error: e.message || "Login error" },
-      { status: 500 }
-    );
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Login error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
