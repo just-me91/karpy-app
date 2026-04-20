@@ -28,6 +28,54 @@ export const TASKS = [
   { id: "invite1", title: "Invite 1 KARPY miner", reward: 1500 },
 ] as const;
 
+export const PREMIUM_PERKS = [
+  "x1.5 mining multiplier",
+  "Higher daily chest rewards",
+  "Premium badge on profile",
+  "Faster progression",
+  "Priority future rewards",
+] as const;
+
+export const FOUNDER_PACKS = [
+  {
+    id: "starter",
+    title: "Starter Pack",
+    cost: 2500,
+    rewardBalance: 500,
+    premiumDays: 3,
+    boostHours: 12,
+    boostMultiplier: 2,
+  },
+  {
+    id: "dragon",
+    title: "Dragon Pack",
+    cost: 7500,
+    rewardBalance: 2000,
+    premiumDays: 7,
+    boostHours: 24,
+    boostMultiplier: 2,
+  },
+  {
+    id: "founder",
+    title: "Founder Pack",
+    cost: 15000,
+    rewardBalance: 5000,
+    premiumDays: 30,
+    boostHours: 48,
+    boostMultiplier: 2,
+  },
+] as const;
+
+export const ACHIEVEMENTS = [
+  { id: "first_claim", title: "First Claim", reward: 300 },
+  { id: "streak_3", title: "3 Day Streak", reward: 500 },
+  { id: "streak_7", title: "7 Day Streak", reward: 1000 },
+  { id: "referral_1", title: "First Referral", reward: 800 },
+  { id: "mined_1000", title: "Mine 1,000 KPY", reward: 1200 },
+  { id: "level_5", title: "Reach Level 5", reward: 1500 },
+  { id: "premium_user", title: "Become Premium", reward: 2000 },
+] as const;
+
 export function getMiningLevelFromXp(xp: number) {
   if (xp <= 0) return 1;
   return Math.floor(xp / 100) + 1;
@@ -108,4 +156,32 @@ export function getMiningProgress(xp: number) {
 export function makeReferralCode(wallet: string) {
   const tail = wallet.replace(/[^a-z0-9]/gi, "").slice(-6).toUpperCase() || "KARPY";
   return `KARPY-${tail}`;
+}
+
+export function getDailyChestReward(user: KarpyUserShape) {
+  const premiumBonus = isPremiumActive(user) ? 75 : 0;
+  const boost = getActiveBoostMultiplier(user) > 1 ? 25 : 0;
+  const base = 100 + premiumBonus + boost + Math.min(user.miningLevel * 10, 100);
+  return Math.floor(base);
+}
+
+export function checkAchievementUnlocked(user: KarpyUserShape, achievementId: string) {
+  switch (achievementId) {
+    case "first_claim":
+      return user.totalMined > 0;
+    case "streak_3":
+      return user.streak >= 3;
+    case "streak_7":
+      return user.streak >= 7;
+    case "referral_1":
+      return user.referrals >= 1;
+    case "mined_1000":
+      return user.totalMined >= 1000;
+    case "level_5":
+      return user.miningLevel >= 5;
+    case "premium_user":
+      return !!user.isPremium;
+    default:
+      return false;
+  }
 }

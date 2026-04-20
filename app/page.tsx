@@ -10,6 +10,25 @@ type Task = {
   done: boolean;
 };
 
+type Achievement = {
+  id: string;
+  title: string;
+  reward: number;
+  unlocked: boolean;
+  claimed: boolean;
+};
+
+type FounderPack = {
+  id: string;
+  title: string;
+  cost: number;
+  rewardBalance: number;
+  premiumDays: number;
+  boostHours: number;
+  boostMultiplier: number;
+  purchased: boolean;
+};
+
 type MiningProgress = {
   currentLevel: number;
   currentXp: number;
@@ -32,6 +51,7 @@ type RewardPreview = {
 
 type ProfileResponse = {
   wallet: string;
+  username?: string | null;
   balance: number;
   streak: number;
   referrals: number;
@@ -42,6 +62,9 @@ type ProfileResponse = {
   miningProgress: MiningProgress;
   rewardPreview: RewardPreview;
   tasks: Task[];
+  achievements: Achievement[];
+  founderPacks: FounderPack[];
+  premiumPerks: string[];
   isPremium: boolean;
   premiumExpiresAt?: string | null;
   boostMultiplier?: number;
@@ -50,6 +73,11 @@ type ProfileResponse = {
     circulating: number;
     maxSupply: number;
     remaining: number;
+  };
+  dailyChest: {
+    available: boolean;
+    nextReward: number;
+    secondsRemaining: number;
   };
 };
 
@@ -92,13 +120,15 @@ function getLeaderboardLabel(type: LeaderboardType) {
 
 export default function HomePage() {
   const [wallet, setWallet] = useState("");
-  const [loadedWallet, setLoadedWallet] = useState("");
-
+  const [username, setUsername] = useState("");
   const [balance, setBalance] = useState(0);
   const [streak, setStreak] = useState(0);
   const [referrals, setReferrals] = useState(0);
   const [referralCode, setReferralCode] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [achievements, setAchievements] = useState<Achievement[]>([]);
+  const [founderPacks, setFounderPacks] = useState<FounderPack[]>([]);
+  const [premiumPerks, setPremiumPerks] = useState<string[]>([]);
   const [totalMined, setTotalMined] = useState(0);
   const [miningXp, setMiningXp] = useState(0);
   const [miningLevel, setMiningLevel] = useState(1);
@@ -110,13 +140,19 @@ export default function HomePage() {
   const [status, setStatus] = useState("Loading profile...");
   const [claimLoading, setClaimLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState<string | null>(null);
+  const [achievementLoading, setAchievementLoading] = useState<string | null>(null);
+  const [packLoading, setPackLoading] = useState<string | null>(null);
   const [referralInput, setReferralInput] = useState("");
   const [referralLoading, setReferralLoading] = useState(false);
   const [copyingReferral, setCopyingReferral] = useState(false);
   const [premiumLoading, setPremiumLoading] = useState(false);
   const [boostLoading, setBoostLoading] = useState(false);
+  const [chestLoading, setChestLoading] = useState(false);
 
   const [secondsLeft, setSecondsLeft] = useState(0);
+  const [chestSecondsLeft, setChestSecondsLeft] = useState(0);
+  const [chestAvailable, setChestAvailable] = useState(false);
+  const [chestReward, setChestReward] = useState(0);
 
   const [rewardPreview, setRewardPreview] = useState<RewardPreview>({
     baseReward: 100,
@@ -153,7 +189,6 @@ export default function HomePage() {
       setStatus("Loading profile...");
 
       const res = await fetch("/api/karpy/profile", {
-        method: "GET",
         cache: "no-store",
       });
 
@@ -167,13 +202,16 @@ export default function HomePage() {
         return;
       }
 
-      setLoadedWallet(data.wallet);
       setWallet(data.wallet);
+      setUsername(data.username || "");
       setBalance(data.balance);
       setStreak(data.streak);
       setReferrals(data.referrals);
       setReferralCode(data.referralCode);
       setTasks(data.tasks);
+      setAchievements(data.achievements);
+      setFounderPacks(data.founderPacks);
+      setPremiumPerks(data.premiumPerks);
       setTotalMined(data.totalMined);
       setMiningXp(data.miningXp);
       setMiningLevel(data.miningLevel);
@@ -184,6 +222,9 @@ export default function HomePage() {
       setBoostMultiplier(data.boostMultiplier || 1);
       setBoostExpiresAt(data.boostExpiresAt || null);
       setSupply(data.supply);
+      setChestAvailable(data.dailyChest.available);
+      setChestSecondsLeft(data.dailyChest.secondsRemaining);
+      setChestReward(data.dailyChest.nextReward);
       setStatus("Profile loaded successfully");
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Profile load failed";
@@ -200,7 +241,7 @@ export default function HomePage() {
       if (!res.ok) return;
       setLeaderboard(data.items || []);
     } catch {
-      // ignore
+      //
     } finally {
       setLeaderboardLoading(false);
     }
@@ -219,31 +260,15 @@ export default function HomePage() {
 
       if (!res.ok) {
         setStatus(data.error || "Claim failed");
-
         if (typeof data.secondsRemaining === "number") {
           setSecondsLeft(data.secondsRemaining);
         }
-
         return;
       }
 
-      setBalance(data.balance ?? 0);
-      setStreak(data.streak ?? 0);
-      setTotalMined(data.totalMined ?? totalMined);
-      setMiningXp(data.miningXp ?? miningXp);
-      setMiningLevel(data.miningLevel ?? miningLevel);
+      setStatus(`Mining successful: +${data.reward} KPY`);
       setSecondsLeft(data.secondsRemaining ?? 24 * 60 * 60);
 
-      setRewardPreview((prev) => ({
-        ...prev,
-        baseReward: data.baseReward ?? prev.baseReward,
-        streakBonus: data.streakBonus ?? prev.streakBonus,
-        holderBonus: data.holderBonus ?? prev.holderBonus,
-        levelMultiplier: data.levelMultiplier ?? prev.levelMultiplier,
-        totalReward: data.reward ?? prev.totalReward,
-      }));
-
-      setStatus(`Mining successful: +${data.reward} KPY`);
       await loadProfile();
       await loadLeaderboard(leaderboardType);
     } catch (error: unknown) {
@@ -274,7 +299,6 @@ export default function HomePage() {
         return;
       }
 
-      setBalance(data.balance ?? balance);
       setStatus(`Task completed: +${data.reward} KPY`);
       await loadProfile();
       await loadLeaderboard(leaderboardType);
@@ -283,6 +307,68 @@ export default function HomePage() {
       setStatus(message);
     } finally {
       setTaskLoading(null);
+    }
+  }
+
+  async function claimAchievement(achievementId: string) {
+    try {
+      setAchievementLoading(achievementId);
+      setStatus(`Claiming achievement ${achievementId}...`);
+
+      const res = await fetch("/api/karpy/achievement/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ achievementId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Achievement failed");
+        return;
+      }
+
+      setStatus(`Achievement claimed: +${data.reward} KPY`);
+      await loadProfile();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Achievement failed";
+      setStatus(message);
+    } finally {
+      setAchievementLoading(null);
+    }
+  }
+
+  async function claimChest() {
+    try {
+      setChestLoading(true);
+      setStatus("Opening daily chest...");
+
+      const res = await fetch("/api/karpy/daily-chest/claim", {
+        method: "POST",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Daily chest failed");
+        if (typeof data.secondsRemaining === "number") {
+          setChestSecondsLeft(data.secondsRemaining);
+          setChestAvailable(false);
+        }
+        return;
+      }
+
+      setStatus(`Daily chest opened: +${data.reward} KPY`);
+      setChestAvailable(false);
+      setChestSecondsLeft(data.secondsRemaining ?? 24 * 60 * 60);
+      await loadProfile();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Daily chest failed";
+      setStatus(message);
+    } finally {
+      setChestLoading(false);
     }
   }
 
@@ -388,6 +474,36 @@ export default function HomePage() {
     }
   }
 
+  async function buyFounderPack(packId: string) {
+    try {
+      setPackLoading(packId);
+      setStatus(`Activating ${packId} pack...`);
+
+      const res = await fetch("/api/karpy/founder-pack/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ packId }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setStatus(data.error || "Founder pack failed");
+        return;
+      }
+
+      setStatus(data.message || "Founder pack active");
+      await loadProfile();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Founder pack failed";
+      setStatus(message);
+    } finally {
+      setPackLoading(null);
+    }
+  }
+
   async function logout() {
     try {
       await fetch("/api/auth/logout", { method: "POST" });
@@ -408,25 +524,28 @@ export default function HomePage() {
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
-
     const timer = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          return 0;
-        }
-        return prev - 1;
-      });
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
-
     return () => clearInterval(timer);
   }, [secondsLeft]);
 
+  useEffect(() => {
+    if (chestSecondsLeft <= 0) return;
+    const timer = setInterval(() => {
+      setChestSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [chestSecondsLeft]);
+
   const pendingTasks = useMemo(() => tasks.filter((t) => !t.done).length, [tasks]);
   const completedTasks = useMemo(() => tasks.filter((t) => t.done).length, [tasks]);
-
   const totalPreviewReward = rewardPreview.totalReward;
   const canMine = !claimLoading && secondsLeft === 0;
+  const claimableAchievements = useMemo(
+    () => achievements.filter((a) => a.unlocked && !a.claimed).length,
+    [achievements]
+  );
 
   return (
     <main
@@ -515,7 +634,7 @@ export default function HomePage() {
                   marginBottom: 14,
                 }}
               >
-                KARPY Official Mining Hub
+                KARPY Growth Dashboard
               </div>
 
               <h1
@@ -529,7 +648,7 @@ export default function HomePage() {
               >
                 Mine KARPY.
                 <br />
-                Grow the Dragon.
+                Build Your Rank.
               </h1>
 
               <p
@@ -542,8 +661,8 @@ export default function HomePage() {
                   lineHeight: 1.6,
                 }}
               >
-                Daily mining, missions, referrals, progression and premium boosts
-                packed into one clean account-based dashboard.
+                Daily mining, chest rewards, achievements, founder packs, premium
+                perks and progression designed to keep users active and buying upgrades.
               </p>
 
               <div
@@ -553,11 +672,11 @@ export default function HomePage() {
                   flexWrap: "wrap",
                 }}
               >
-                <MiniPill label="Wallet" value={loadedWallet} />
+                <MiniPill label="Wallet" value={wallet} />
+                <MiniPill label="User" value={username || "-"} />
                 <MiniPill label="Balance" value={`${formatNumber(balance)} KPY`} />
-                <MiniPill label="Streak" value={`${streak} days`} />
                 <MiniPill label="Level" value={`${miningLevel}`} />
-                <MiniPill label="Boost" value={`x${boostMultiplier.toFixed(2)}`} />
+                <MiniPill label="Premium" value={isPremium ? "YES" : "NO"} />
               </div>
             </div>
           </div>
@@ -572,14 +691,6 @@ export default function HomePage() {
           }}
         >
           <div style={{ display: "grid", gap: 20 }}>
-            <section style={leftCard}>
-              <h2 style={sectionTitle}>Wallet</h2>
-              <input value={wallet} readOnly style={inputStyle} />
-              <div style={{ color: "#8fa4c4", marginTop: 12 }}>
-                Logged wallet: <strong style={{ color: "white" }}>{loadedWallet}</strong>
-              </div>
-            </section>
-
             <section style={minePanel}>
               <div style={{ textAlign: "center" }}>
                 <div
@@ -602,8 +713,6 @@ export default function HomePage() {
                     opacity: canMine ? 1 : 0.72,
                     cursor: canMine ? "pointer" : "not-allowed",
                   }}
-                  aria-label="Mine KARPY"
-                  title="Mine KARPY"
                 >
                   <div
                     style={{
@@ -667,6 +776,24 @@ export default function HomePage() {
             </section>
 
             <section style={leftCard}>
+              <h2 style={sectionTitle}>Daily Chest</h2>
+
+              <RewardRow label="Next chest reward" value={`${formatNumber(chestReward)} KPY`} />
+              <RewardRow
+                label="Chest status"
+                value={chestAvailable ? "Ready" : formatTime(chestSecondsLeft)}
+              />
+
+              <button
+                style={{ ...primaryButton, marginTop: 12 }}
+                onClick={claimChest}
+                disabled={!chestAvailable || chestLoading}
+              >
+                {chestLoading ? "Opening..." : chestAvailable ? "Open Daily Chest" : "Chest Cooling Down"}
+              </button>
+            </section>
+
+            <section style={leftCard}>
               <h2 style={sectionTitle}>Reward Breakdown</h2>
 
               <div style={{ display: "grid", gap: 10 }}>
@@ -713,20 +840,31 @@ export default function HomePage() {
             <section style={leftCard}>
               <h2 style={sectionTitle}>Premium Store</h2>
 
-              <div style={{ display: "grid", gap: 10 }}>
-                <RewardRow label="Premium 30 days" value="5000 KPY" />
-                <button style={primaryButton} onClick={buyPremium} disabled={premiumLoading}>
-                  {premiumLoading ? "Activating..." : "Buy Premium"}
-                </button>
+              <RewardRow label="Premium 30 days" value="5000 KPY" />
+              <button style={primaryButton} onClick={buyPremium} disabled={premiumLoading}>
+                {premiumLoading ? "Activating..." : "Buy Premium"}
+              </button>
 
-                <RewardRow label="x2 Boost 24h" value="1000 KPY" />
-                <button style={primaryButton} onClick={buyBoost} disabled={boostLoading}>
-                  {boostLoading ? "Activating..." : "Buy x2 Boost"}
-                </button>
+              <div style={{ height: 10 }} />
 
+              <RewardRow label="x2 Boost 24h" value="1000 KPY" />
+              <button style={primaryButton} onClick={buyBoost} disabled={boostLoading}>
+                {boostLoading ? "Activating..." : "Buy x2 Boost"}
+              </button>
+
+              <div style={{ marginTop: 14 }}>
                 <RewardRow label="Premium active" value={isPremium ? "YES" : "NO"} />
                 <RewardRow label="Premium expires" value={premiumExpiresAt || "-"} />
                 <RewardRow label="Boost expires" value={boostExpiresAt || "-"} />
+              </div>
+            </section>
+
+            <section style={leftCard}>
+              <h2 style={sectionTitle}>Premium Perks</h2>
+              <div style={{ display: "grid", gap: 10 }}>
+                {premiumPerks.map((perk) => (
+                  <RewardRow key={perk} label="Perk" value={perk} />
+                ))}
               </div>
             </section>
 
@@ -763,7 +901,7 @@ export default function HomePage() {
                 <StatCard label="Referrals" value={`${formatNumber(referrals)}`} accent="#34d399" />
                 <StatCard label="Tasks Left" value={`${pendingTasks}`} accent="#f472b6" />
                 <StatCard label="Tasks Done" value={`${completedTasks}`} accent="#a78bfa" />
-                <StatCard label="Mining XP" value={`${formatNumber(miningXp)}`} accent="#22d3ee" />
+                <StatCard label="Achievements" value={`${claimableAchievements}`} accent="#22d3ee" />
               </div>
             </section>
 
@@ -877,6 +1015,39 @@ export default function HomePage() {
             </section>
 
             <section style={rightCard}>
+              <h2 style={sectionTitle}>Founder Packs</h2>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {founderPacks.map((pack) => (
+                  <div key={pack.id} style={taskRow}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 18 }}>{pack.title}</div>
+                      <div style={{ color: "#8fa4c4", marginTop: 4 }}>
+                        Cost: {formatNumber(pack.cost)} KPY • Reward: {formatNumber(pack.rewardBalance)} KPY • Premium: {pack.premiumDays}d • Boost: x{pack.boostMultiplier} for {pack.boostHours}h
+                      </div>
+                    </div>
+
+                    <button
+                      style={{
+                        ...taskButton,
+                        opacity: pack.purchased ? 0.7 : 1,
+                        cursor: pack.purchased ? "not-allowed" : "pointer",
+                      }}
+                      disabled={pack.purchased || packLoading === pack.id}
+                      onClick={() => buyFounderPack(pack.id)}
+                    >
+                      {pack.purchased
+                        ? "Owned"
+                        : packLoading === pack.id
+                        ? "Buying..."
+                        : "Buy Pack"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section style={rightCard}>
               <div
                 style={{
                   display: "flex",
@@ -960,6 +1131,41 @@ export default function HomePage() {
                       onClick={() => completeTask(task.id)}
                     >
                       {task.done ? "Done" : taskLoading === task.id ? "Saving..." : "Complete"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>Achievements</h2>
+
+              <div style={{ display: "grid", gap: 12 }}>
+                {achievements.map((achievement) => (
+                  <div key={achievement.id} style={taskRow}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: 18 }}>{achievement.title}</div>
+                      <div style={{ color: "#8fa4c4", marginTop: 4 }}>
+                        Reward: {formatNumber(achievement.reward)} KPY
+                      </div>
+                    </div>
+
+                    <button
+                      style={{
+                        ...taskButton,
+                        opacity: achievement.claimed || !achievement.unlocked ? 0.7 : 1,
+                        cursor: achievement.claimed || !achievement.unlocked ? "not-allowed" : "pointer",
+                      }}
+                      disabled={achievement.claimed || !achievement.unlocked || achievementLoading === achievement.id}
+                      onClick={() => claimAchievement(achievement.id)}
+                    >
+                      {achievement.claimed
+                        ? "Claimed"
+                        : !achievement.unlocked
+                        ? "Locked"
+                        : achievementLoading === achievement.id
+                        ? "Claiming..."
+                        : "Claim"}
                     </button>
                   </div>
                 ))}
