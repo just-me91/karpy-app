@@ -56,19 +56,18 @@ export async function POST(req: NextRequest) {
       boostBase + pack.boostHours * 60 * 60 * 1000
     );
 
+    const netBalanceChange = -pack.cost + pack.rewardBalance;
+
     const updated = await db.user.update({
       where: { id: user.id },
       data: {
         balance: {
-          decrement: pack.cost,
+          increment: netBalanceChange,
         },
         isPremium: true,
         premiumExpiresAt,
         boostMultiplier: pack.boostMultiplier,
         boostExpiresAt,
-        balance: {
-          decrement: pack.cost,
-        },
         founderPacks: {
           create: {
             packId: pack.id,
@@ -78,21 +77,13 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    await db.user.update({
-      where: { id: user.id },
-      data: {
-        balance: {
-          increment: pack.rewardBalance,
-        },
-      },
-    });
-
     return NextResponse.json({
       ok: true,
       message: `${pack.title} activated`,
-      balance: updated.balance - pack.cost + pack.rewardBalance,
-      premiumExpiresAt,
-      boostExpiresAt,
+      balance: updated.balance,
+      premiumExpiresAt: updated.premiumExpiresAt,
+      boostExpiresAt: updated.boostExpiresAt,
+      boostMultiplier: updated.boostMultiplier,
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Founder pack failed";
