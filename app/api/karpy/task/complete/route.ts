@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { TASKS, XP_PER_TASK, getMiningLevelFromXp } from "@/lib/karpy";
+import { TASKS, XP_PER_TASK, getMiningLevelFromXp, checkTaskUnlocked } from "@/lib/karpy";
 import { getSessionUser } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -17,6 +17,10 @@ export async function POST(req: NextRequest) {
     const task = TASKS.find((t) => t.id === taskId);
     if (!task) {
       return NextResponse.json({ error: "Invalid task" }, { status: 400 });
+    }
+
+    if (!checkTaskUnlocked(user, taskId)) {
+      return NextResponse.json({ error: "Task is locked until you meet the requirement" }, { status: 400 });
     }
 
     const existing = await db.taskCompletion.findUnique({

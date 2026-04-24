@@ -7,6 +7,8 @@ type Task = {
   id: string;
   title: string;
   reward: number;
+  category?: string;
+  unlocked?: boolean;
   done: boolean;
 };
 
@@ -118,6 +120,18 @@ function getLeaderboardLabel(type: LeaderboardType) {
   return "Top Mined";
 }
 
+function getTaskCategory(task: Task) {
+  return task.category || "Missions";
+}
+
+function getChestTierLabel(level: number, streak: number, isPremium: boolean, boostMultiplier: number) {
+  const score = level * 2 + Math.min(streak, 30) + (isPremium ? 20 : 0) + (boostMultiplier > 1 ? 10 : 0);
+  if (score >= 80) return "Legendary";
+  if (score >= 50) return "Epic";
+  if (score >= 25) return "Rare";
+  return "Common";
+}
+
 export default function HomePage() {
   const [wallet, setWallet] = useState("");
   const [username, setUsername] = useState("");
@@ -155,13 +169,13 @@ export default function HomePage() {
   const [chestReward, setChestReward] = useState(0);
 
   const [rewardPreview, setRewardPreview] = useState<RewardPreview>({
-    baseReward: 100,
+    baseReward: 60,
     streakBonus: 0,
     holderBonus: 0,
     levelMultiplier: 1,
     premiumFactor: 1,
     boostFactor: 1,
-    totalReward: 100,
+    totalReward: 60,
   });
 
   const [miningProgress, setMiningProgress] = useState<MiningProgress>({
@@ -169,7 +183,7 @@ export default function HomePage() {
     currentXp: 0,
     nextLevel: 2,
     xpIntoLevel: 0,
-    xpNeededForNext: 100,
+    xpNeededForNext: 150,
     progressPercent: 0,
     multiplier: 1,
   });
@@ -413,8 +427,10 @@ export default function HomePage() {
     try {
       if (!referralCode) return;
       setCopyingReferral(true);
-      await navigator.clipboard.writeText(referralCode);
-      setStatus("Referral code copied");
+      const baseUrl = window.location.origin;
+      const referralLink = `${baseUrl}/auth?ref=${encodeURIComponent(referralCode)}`;
+      await navigator.clipboard.writeText(referralLink);
+      setStatus("Referral invite link copied");
     } catch {
       setStatus("Could not copy referral code");
     } finally {
@@ -547,6 +563,21 @@ export default function HomePage() {
     [achievements]
   );
 
+  const taskGroups = useMemo(() => {
+    return tasks.reduce<Record<string, Task[]>>((groups, task) => {
+      const category = getTaskCategory(task);
+      groups[category] = groups[category] || [];
+      groups[category].push(task);
+      return groups;
+    }, {});
+  }, [tasks]);
+
+  const taskCategoryOrder = ["Daily", "Social", "Progress", "Referral", "Missions"];
+  const referralLink = referralCode ? `/auth?ref=${referralCode}` : "-";
+  const chestTier = getChestTierLabel(miningLevel, streak, isPremium, boostMultiplier);
+  const growthScore = totalMined + balance + streak * 50 + referrals * 200 + miningLevel * 100;
+
+
   return (
     <main
       style={{
@@ -634,7 +665,7 @@ export default function HomePage() {
                   marginBottom: 14,
                 }}
               >
-                KARPY Growth Dashboard
+                KARPY Free Rewards App
               </div>
 
               <h1
@@ -648,7 +679,7 @@ export default function HomePage() {
               >
                 Mine KARPY.
                 <br />
-                Build Your Rank.
+                Build Your Team.
               </h1>
 
               <p
@@ -661,8 +692,7 @@ export default function HomePage() {
                   lineHeight: 1.6,
                 }}
               >
-                Daily mining, chest rewards, achievements, founder packs, premium
-                perks and progression designed to keep users active and buying upgrades.
+                Daily mining, chests, missions, achievements, referrals and optional upgrades. KPY is an in-app progression currency, not a payout promise.
               </p>
 
               <div
@@ -677,6 +707,8 @@ export default function HomePage() {
                 <MiniPill label="Balance" value={`${formatNumber(balance)} KPY`} />
                 <MiniPill label="Level" value={`${miningLevel}`} />
                 <MiniPill label="Premium" value={isPremium ? "YES" : "NO"} />
+                <MiniPill label="Streak" value={`${streak}d`} />
+                <MiniPill label="Referrals" value={`${formatNumber(referrals)}`} />
               </div>
             </div>
           </div>
@@ -791,6 +823,10 @@ export default function HomePage() {
               >
                 {chestLoading ? "Opening..." : chestAvailable ? "Open Daily Chest" : "Chest Cooling Down"}
               </button>
+
+              <div style={{ marginTop: 12, color: "#8fa4c4", fontSize: 13, lineHeight: 1.5 }}>
+                Chest tier improves with level, streak, premium and active boosts. This gives free users progression and paid users faster progress.
+              </div>
             </section>
 
             <section style={leftCard}>
@@ -808,17 +844,18 @@ export default function HomePage() {
             </section>
 
             <section style={leftCard}>
-              <h2 style={sectionTitle}>Referral</h2>
-              <div style={{ color: "#8fa4c4", marginBottom: 8, fontSize: 14 }}>Your code</div>
+              <h2 style={sectionTitle}>Team / Referral</h2>
+              <div style={{ color: "#8fa4c4", marginBottom: 8, fontSize: 14 }}>Your invite code</div>
 
               <div style={codeBox}>{referralCode || "-"}</div>
+              <div style={{ ...codeBox, fontSize: 13, fontWeight: 700, color: "#bfdbfe" }}>{referralLink}</div>
 
               <button
                 style={{ ...secondaryButton, marginBottom: 12 }}
                 onClick={copyReferralCode}
                 disabled={!referralCode || copyingReferral}
               >
-                {copyingReferral ? "Copying..." : "Copy Referral Code"}
+                {copyingReferral ? "Copying..." : "Copy Invite Link"}
               </button>
 
               <input
@@ -835,27 +872,37 @@ export default function HomePage() {
               >
                 {referralLoading ? "Applying..." : "Apply Referral"}
               </button>
+
+              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
+                <RewardRow label="Team members" value={`${formatNumber(referrals)}`} />
+                <RewardRow label="Next target" value={referrals >= 5 ? "Keep growing" : referrals >= 3 ? "5 active miners" : referrals >= 1 ? "3 active miners" : "1 active miner"} />
+                <RewardRow label="Growth rule" value="Reward active users, not spam" />
+              </div>
             </section>
 
             <section style={leftCard}>
-              <h2 style={sectionTitle}>Premium Store</h2>
+              <h2 style={sectionTitle}>Upgrade Store</h2>
 
               <RewardRow label="Premium 30 days" value="5000 KPY" />
               <button style={primaryButton} onClick={buyPremium} disabled={premiumLoading}>
-                {premiumLoading ? "Activating..." : "Buy Premium"}
+                {premiumLoading ? "Activating..." : "Buy Premium with KPY"}
               </button>
 
               <div style={{ height: 10 }} />
 
-              <RewardRow label="x2 Boost 24h" value="1000 KPY" />
+              <RewardRow label="x2 Boost 24h" value="1200 KPY" />
               <button style={primaryButton} onClick={buyBoost} disabled={boostLoading}>
-                {boostLoading ? "Activating..." : "Buy x2 Boost"}
+                {boostLoading ? "Activating..." : "Buy x2 Boost with KPY"}
               </button>
 
-              <div style={{ marginTop: 14 }}>
+              <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
                 <RewardRow label="Premium active" value={isPremium ? "YES" : "NO"} />
                 <RewardRow label="Premium expires" value={premiumExpiresAt || "-"} />
                 <RewardRow label="Boost expires" value={boostExpiresAt || "-"} />
+              </div>
+
+              <div style={{ marginTop: 14, color: "#8fa4c4", fontSize: 13, lineHeight: 1.5 }}>
+                Money path: keep this KPY store free now. When users are active, add Stripe Payment Links for Premium, Founder Pack, Dragon Pack and cosmetics. You sell progress/status, not payouts.
               </div>
             </section>
 
@@ -902,6 +949,7 @@ export default function HomePage() {
                 <StatCard label="Tasks Left" value={`${pendingTasks}`} accent="#f472b6" />
                 <StatCard label="Tasks Done" value={`${completedTasks}`} accent="#a78bfa" />
                 <StatCard label="Achievements" value={`${claimableAchievements}`} accent="#22d3ee" />
+                <StatCard label="Growth Score" value={`${formatNumber(growthScore)}`} accent="#38bdf8" />
               </div>
             </section>
 
@@ -1109,31 +1157,58 @@ export default function HomePage() {
             </section>
 
             <section style={rightCard}>
-              <h2 style={sectionTitle}>Tasks</h2>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 16,
+                  flexWrap: "wrap",
+                  marginBottom: 16,
+                }}
+              >
+                <h2 style={{ ...sectionTitle, marginBottom: 0 }}>Missions</h2>
+                <div style={{ color: "#8fa4c4", fontWeight: 800 }}>
+                  {completedTasks}/{tasks.length} complete
+                </div>
+              </div>
 
-              <div style={{ display: "grid", gap: 12 }}>
-                {tasks.map((task) => (
-                  <div key={task.id} style={taskRow}>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 18 }}>{task.title}</div>
-                      <div style={{ color: "#8fa4c4", marginTop: 4 }}>
-                        Reward: {formatNumber(task.reward)} KPY
+              <div style={{ display: "grid", gap: 18 }}>
+                {taskCategoryOrder
+                  .filter((category) => taskGroups[category]?.length)
+                  .map((category) => (
+                    <div key={category} style={{ display: "grid", gap: 10 }}>
+                      <div style={{ color: "#93c5fd", fontWeight: 900, textTransform: "uppercase", letterSpacing: 1, fontSize: 12 }}>
+                        {category} Missions
                       </div>
-                    </div>
 
-                    <button
-                      style={{
-                        ...taskButton,
-                        opacity: task.done ? 0.7 : 1,
-                        cursor: task.done ? "not-allowed" : "pointer",
-                      }}
-                      disabled={task.done || taskLoading === task.id}
-                      onClick={() => completeTask(task.id)}
-                    >
-                      {task.done ? "Done" : taskLoading === task.id ? "Saving..." : "Complete"}
-                    </button>
-                  </div>
-                ))}
+                      {taskGroups[category].map((task) => {
+                        const locked = task.unlocked === false;
+                        return (
+                          <div key={task.id} style={taskRow}>
+                            <div>
+                              <div style={{ fontWeight: 800, fontSize: 18 }}>{task.title}</div>
+                              <div style={{ color: "#8fa4c4", marginTop: 4 }}>
+                                Reward: {formatNumber(task.reward)} KPY {locked ? "• Locked" : ""}
+                              </div>
+                            </div>
+
+                            <button
+                              style={{
+                                ...taskButton,
+                                opacity: task.done || locked ? 0.7 : 1,
+                                cursor: task.done || locked ? "not-allowed" : "pointer",
+                              }}
+                              disabled={task.done || locked || taskLoading === task.id}
+                              onClick={() => completeTask(task.id)}
+                            >
+                              {task.done ? "Done" : locked ? "Locked" : taskLoading === task.id ? "Saving..." : "Complete"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
               </div>
             </section>
 
@@ -1169,6 +1244,16 @@ export default function HomePage() {
                     </button>
                   </div>
                 ))}
+              </div>
+            </section>
+
+            <section style={rightCard}>
+              <h2 style={sectionTitle}>User Value + Monetization</h2>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                <InfoChip label="Users get" value="KPY points, levels, streaks, badges, team rank" />
+                <InfoChip label="You earn from" value="Premium, packs, boosts, cosmetics" />
+                <InfoChip label="No wallet payout" value="No manual money transfer needed" />
+                <InfoChip label="Safe promise" value="KPY is in-app progression, not cashout" />
               </div>
             </section>
 

@@ -9,6 +9,7 @@ import {
   getMiningProgress,
   getDailyChestReward,
   checkAchievementUnlocked,
+  checkTaskUnlocked,
 } from "@/lib/karpy";
 import { getSessionUser } from "@/lib/auth";
 
@@ -93,6 +94,7 @@ export async function GET() {
       },
       tasks: TASKS.map((task) => ({
         ...task,
+        unlocked: checkTaskUnlocked(user, task.id),
         done: completedTaskSet.has(task.id),
       })),
       achievements: ACHIEVEMENTS.map((achievement) => ({
