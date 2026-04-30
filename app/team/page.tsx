@@ -1,116 +1,111 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Profile = {
+  wallet: string;
   username?: string | null;
   referralCode: string;
   referrals: number;
-  streak: number;
+  balance: number;
   miningLevel: number;
-  totalMined: number;
 };
 
-export default function TeamPage() {
+function TeamContent() {
+  const searchParams = useSearchParams();
+  const mission = searchParams.get("mission") || "invite_intro";
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [status, setStatus] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [claimed, setClaimed] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/karpy/profile")
-      .then((res) => res.json())
+      .then((r) => r.json())
       .then((data) => setProfile(data))
-      .catch(() => setStatus("Could not load team profile."));
+      .catch(() => setError("Could not load profile."));
   }, []);
 
-  async function completeTeamMission() {
-    try {
-      const res = await fetch("/api/karpy/task/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: "team_invite_code" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setStatus(data.error || "Team mission could not be completed.");
-        return;
-      }
-      setStatus(`Team mission complete. +${data.reward} KARPY Points added.`);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Team mission failed.");
-    }
+  const inviteUrl = profile ? `${window.location.origin}/auth?ref=${encodeURIComponent(profile.referralCode)}` : "";
+
+  async function copyInvite() {
+    if (!inviteUrl) return;
+    await navigator.clipboard.writeText(inviteUrl).catch(() => null);
+    setCopied(true);
   }
 
-  const inviteLink = typeof window !== "undefined" && profile ? `${window.location.origin}/auth?ref=${profile.referralCode}` : "";
+  async function claimMission() {
+    if (claimed) return;
+    setError("");
+    const res = await fetch("/api/karpy/task/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId: "team_invite_intro" }),
+    });
+    if (res.ok) {
+      setClaimed(true);
+      return;
+    }
+    const data = await res.json().catch(() => null);
+    setError(data?.error || "Reward already claimed or unavailable.");
+  }
 
   return (
-    <main style={pageWrap}>
-      <section style={heroCard}>
-        <div style={badge}>Team Hub</div>
-        <h1 style={title}>Build your KARPY team</h1>
-        <p style={subtitle}>Invite people into the app, but keep it honest: KARPY Points are for in-app progress and rewards.</p>
-      </section>
+    <main className="min-h-screen bg-[#061123] px-4 py-8 text-white">
+      <div className="mx-auto max-w-5xl">
+        <a href="/" className="text-blue-300 hover:text-blue-200">← Back to KARPY</a>
+        <section className="mt-6 rounded-3xl border border-emerald-400/20 bg-gradient-to-br from-[#0e1b33] to-[#071426] p-6 shadow-2xl">
+          <p className="text-sm font-black uppercase tracking-[0.25em] text-emerald-300">Team Growth</p>
+          <h1 className="mt-3 text-4xl font-black">Build your KARPY circle</h1>
+          <p className="mt-3 text-blue-100">
+            Invite friends into the early ecosystem. KARPY grows through learning, activity, and community — not fake payout promises.
+          </p>
+        </section>
 
-      <section style={contentCard}>
-        {!profile ? (
-          <p style={subtitle}>Loading...</p>
-        ) : (
-          <>
-            <div style={codeBox}>{profile.referralCode}</div>
-            <div style={linkBox}>{inviteLink}</div>
-            <div style={statsGrid}>
-              <Stat label="Referrals" value={profile.referrals} />
-              <Stat label="Streak" value={profile.streak} />
-              <Stat label="Level" value={profile.miningLevel} />
-              <Stat label="Total mined" value={profile.totalMined} />
+        <section className="mt-6 grid gap-5 lg:grid-cols-2">
+          <div className="rounded-3xl border border-blue-400/20 bg-[#0d1a2f] p-6">
+            <h2 className="text-2xl font-black">Your invite code</h2>
+            {!profile ? <p className="mt-4 text-blue-100">Loading...</p> : (
+              <>
+                <div className="mt-5 rounded-2xl border border-blue-400/20 bg-blue-950/50 p-5 text-3xl font-black tracking-wide">{profile.referralCode}</div>
+                <div className="mt-4 break-all rounded-2xl bg-blue-500/10 p-4 text-blue-100">{inviteUrl}</div>
+                <button onClick={copyInvite} className="mt-5 rounded-2xl bg-blue-500 px-6 py-3 font-black hover:bg-blue-400">{copied ? "Copied" : "Copy Invite Link"}</button>
+              </>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-blue-400/20 bg-[#0d1a2f] p-6">
+            <h2 className="text-2xl font-black">Team stats</h2>
+            <div className="mt-5 grid gap-3">
+              <div className="rounded-2xl bg-blue-950/50 p-4">Active referrals: <b>{profile?.referrals ?? 0}</b></div>
+              <div className="rounded-2xl bg-blue-950/50 p-4">Your level: <b>{profile?.miningLevel ?? 1}</b></div>
+              <div className="rounded-2xl bg-blue-950/50 p-4">Points balance: <b>{profile?.balance ?? 0}</b></div>
             </div>
-            <button
-              style={primaryButton}
-              onClick={async () => {
-                await navigator.clipboard.writeText(inviteLink);
-                setStatus("Invite link copied.");
-              }}
-            >
-              Copy invite link
-            </button>
-            <button style={secondaryButton} onClick={completeTeamMission}>Complete Team Hub mission</button>
-          </>
-        )}
-        {status ? <div style={statusBox}>{status}</div> : null}
-      </section>
+          </div>
+        </section>
 
-      <section style={contentCard}>
-        <h2 style={sectionTitle}>How team rewards should work</h2>
-        <p style={paragraph}>The healthy model is not to reward fake signups. Reward activity: first claim, streak, quiz completion and real return visits.</p>
-        <p style={paragraph}>This keeps the app closer to Pi/Bee-style growth without promising payouts or creating wallet problems.</p>
-      </section>
-
-      <a href="/" style={backLink}>← Back to mining dashboard</a>
+        <section className="mt-6 rounded-3xl border border-blue-400/20 bg-[#0d1a2f] p-6">
+          <h2 className="text-2xl font-black">How referrals should work</h2>
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-blue-950/50 p-4">1. Friend joins with your code</div>
+            <div className="rounded-2xl bg-blue-950/50 p-4">2. They mine and stay active</div>
+            <div className="rounded-2xl bg-blue-950/50 p-4">3. You grow your team score</div>
+          </div>
+          {mission === "invite_intro" && copied && !claimed ? <button onClick={claimMission} className="mt-6 rounded-2xl bg-emerald-500 px-6 py-3 font-black hover:bg-emerald-400">Claim Team Mission Reward</button> : null}
+          {mission === "invite_intro" && !copied ? <p className="mt-5 text-blue-100">Copy your invite link to unlock this mission reward.</p> : null}
+          {claimed ? <div className="mt-6 rounded-2xl bg-emerald-500/10 p-4 text-emerald-200">✅ Team mission complete. Reward claimed.</div> : null}
+          {error ? <div className="mt-6 rounded-2xl bg-yellow-500/10 p-4 text-yellow-100">{error}</div> : null}
+        </section>
+      </div>
     </main>
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+export default function TeamPage() {
   return (
-    <div style={statCard}>
-      <div style={{ color: "#8fa4c4", fontSize: 13 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 950 }}>{value}</div>
-    </div>
+    <Suspense fallback={<main className="min-h-screen bg-[#061123] p-8 text-white">Loading KARPY Team...</main>}>
+      <TeamContent />
+    </Suspense>
   );
 }
-
-const pageWrap: React.CSSProperties = { minHeight: "100vh", padding: 24, background: "radial-gradient(circle at top, #1d4ed8 0, #020617 42%, #000 100%)", color: "white" };
-const heroCard: React.CSSProperties = { maxWidth: 900, margin: "0 auto 18px", padding: 24, borderRadius: 28, background: "rgba(15,23,42,0.82)", border: "1px solid rgba(147,197,253,0.16)" };
-const contentCard: React.CSSProperties = { maxWidth: 900, margin: "0 auto 18px", padding: 22, borderRadius: 24, background: "rgba(15,23,42,0.72)", border: "1px solid rgba(255,255,255,0.08)" };
-const badge: React.CSSProperties = { display: "inline-flex", padding: "7px 11px", borderRadius: 999, border: "1px solid rgba(56,189,248,0.5)", color: "#7dd3fc", fontSize: 12, fontWeight: 900, marginBottom: 12 };
-const title: React.CSSProperties = { fontSize: 38, lineHeight: 1.05, margin: 0, fontWeight: 950 };
-const subtitle: React.CSSProperties = { color: "#bfdbfe", fontSize: 16, lineHeight: 1.7 };
-const sectionTitle: React.CSSProperties = { marginTop: 0, fontSize: 22, fontWeight: 900 };
-const paragraph: React.CSSProperties = { color: "#dbeafe", fontSize: 17, lineHeight: 1.8 };
-const codeBox: React.CSSProperties = { padding: 18, borderRadius: 18, background: "rgba(59,130,246,0.18)", border: "1px solid rgba(147,197,253,0.22)", fontSize: 28, fontWeight: 950, marginBottom: 12, wordBreak: "break-word" };
-const linkBox: React.CSSProperties = { padding: 14, borderRadius: 16, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", color: "#bfdbfe", marginBottom: 14, wordBreak: "break-word" };
-const statsGrid: React.CSSProperties = { display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 12, marginBottom: 14 };
-const statCard: React.CSSProperties = { padding: 16, borderRadius: 18, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" };
-const primaryButton: React.CSSProperties = { width: "100%", padding: 15, borderRadius: 16, border: "none", background: "linear-gradient(135deg,#2563eb,#38bdf8)", color: "white", fontWeight: 950, cursor: "pointer", marginBottom: 10 };
-const secondaryButton: React.CSSProperties = { width: "100%", padding: 15, borderRadius: 16, border: "1px solid rgba(255,255,255,0.08)", background: "rgba(255,255,255,0.04)", color: "white", fontWeight: 950, cursor: "pointer" };
-const statusBox: React.CSSProperties = { marginTop: 14, padding: 14, borderRadius: 16, background: "rgba(59,130,246,0.12)", border: "1px solid rgba(147,197,253,0.18)", color: "#bfdbfe" };
-const backLink: React.CSSProperties = { display: "block", maxWidth: 900, margin: "0 auto", color: "#93c5fd", textDecoration: "none", fontWeight: 900 };

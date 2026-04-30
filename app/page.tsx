@@ -8,10 +8,9 @@ type Task = {
   title: string;
   reward: number;
   done: boolean;
-  unlocked?: boolean;
+  href?: string;
   category?: string;
   description?: string;
-  href?: string;
   cta?: string;
 };
 
@@ -121,6 +120,26 @@ function getLeaderboardLabel(type: LeaderboardType) {
   if (type === "balance") return "Top Balance";
   if (type === "referrals") return "Top Referrals";
   return "Top Mined";
+}
+
+function getTaskCategoryStyle(category?: string): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    borderRadius: 999,
+    padding: "5px 10px",
+    fontSize: 12,
+    fontWeight: 900,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+    border: "1px solid rgba(255,255,255,0.14)",
+  };
+
+  if (category === "learn") return { ...base, background: "rgba(34, 211, 238, 0.14)", color: "#67e8f9" };
+  if (category === "quiz") return { ...base, background: "rgba(168, 85, 247, 0.14)", color: "#d8b4fe" };
+  if (category === "game") return { ...base, background: "rgba(59, 130, 246, 0.16)", color: "#93c5fd" };
+  if (category === "team") return { ...base, background: "rgba(16, 185, 129, 0.14)", color: "#6ee7b7" };
+  return { ...base, background: "rgba(250, 204, 21, 0.12)", color: "#fde68a" };
 }
 
 export default function HomePage() {
@@ -1114,58 +1133,48 @@ export default function HomePage() {
             </section>
 
             <section style={rightCard}>
-              <h2 style={sectionTitle}>Missions</h2>
-
-              <div style={{ color: "#8fa4c4", marginBottom: 16, lineHeight: 1.6 }}>
-                KARPY Points are in-app rewards for progress, games, learning and status. They are not a payout promise and have no guaranteed monetary value.
-              </div>
+              <h2 style={sectionTitle}>Tasks</h2>
 
               <div style={{ display: "grid", gap: 12 }}>
-                {tasks.map((task) => {
-                  const unlocked = task.unlocked !== false;
-                  const canStart = !task.done && unlocked;
-
-                  return (
-                    <div key={task.id} style={taskRow}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                          <div style={{ fontWeight: 900, fontSize: 18 }}>{task.title}</div>
-                          {task.category ? <span style={missionBadge}>{task.category}</span> : null}
-                        </div>
-
-                        <div style={{ color: "#8fa4c4", marginTop: 6, lineHeight: 1.5 }}>
-                          {task.description || "Complete this mission to earn KARPY Points."}
-                        </div>
-
-                        <div style={{ color: "#bfdbfe", marginTop: 8, fontWeight: 800 }}>
-                          Reward: {formatNumber(task.reward)} KARPY Points
-                        </div>
+                {tasks.map((task) => (
+                  <div key={task.id} style={taskRow}>
+                    <div style={{ display: "grid", gap: 7 }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={getTaskCategoryStyle(task.category)}>{task.category || "mission"}</span>
+                        <div style={{ fontWeight: 900, fontSize: 18 }}>{task.title}</div>
                       </div>
-
-                      <button
-                        style={{
-                          ...taskButton,
-                          opacity: task.done || !unlocked ? 0.7 : 1,
-                          cursor: task.done || !unlocked ? "not-allowed" : "pointer",
-                          minWidth: 136,
-                        }}
-                        disabled={task.done || !unlocked}
-                        onClick={() => {
-                          if (task.href) {
-                            window.location.href = task.href;
-                            return;
-                          }
-                          completeTask(task.id);
-                        }}
-                      >
-                        {task.done ? "Done" : !unlocked ? "Locked" : task.cta || "Start"}
-                      </button>
+                      {task.description ? (
+                        <div style={{ color: "#b6c7e5", lineHeight: 1.45, maxWidth: 520 }}>
+                          {task.description}
+                        </div>
+                      ) : null}
+                      <div style={{ color: "#8fa4c4", marginTop: 2 }}>
+                        Reward: {formatNumber(task.reward)} KARPY Points
+                      </div>
                     </div>
-                  );
-                })}
+
+                    <button
+                      style={{
+                        ...taskButton,
+                        opacity: task.done ? 0.7 : 1,
+                        cursor: task.done ? "not-allowed" : "pointer",
+                      }}
+                      disabled={task.done || taskLoading === task.id}
+                      onClick={() => {
+                        if (task.done) return;
+                        if (task.href) {
+                          window.location.href = task.href;
+                          return;
+                        }
+                        completeTask(task.id);
+                      }}
+                    >
+                      {task.done ? "Done" : taskLoading === task.id ? "Saving..." : task.cta || "Start"}
+                    </button>
+                  </div>
+                ))}
               </div>
             </section>
-
 
             <section style={rightCard}>
               <h2 style={sectionTitle}>Achievements</h2>
@@ -1446,16 +1455,6 @@ const taskButton: React.CSSProperties = {
   background: "linear-gradient(135deg, #2563eb, #3b82f6)",
   color: "white",
   fontWeight: 800,
-};
-
-const missionBadge: React.CSSProperties = {
-  padding: "5px 9px",
-  borderRadius: 999,
-  background: "rgba(59,130,246,0.16)",
-  border: "1px solid rgba(147,197,253,0.20)",
-  color: "#bfdbfe",
-  fontSize: 12,
-  fontWeight: 900,
 };
 
 const statusBox: React.CSSProperties = {
